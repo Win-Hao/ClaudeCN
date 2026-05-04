@@ -1,5 +1,6 @@
-import Foundation
+import AppKit
 import Combine
+import UserNotifications
 
 enum PatchStatus: String {
     case notInstalled = "未检测到 Claude Desktop"
@@ -14,41 +15,48 @@ class AppState: ObservableObject {
     @Published var claudeVersion: String = ""
     @Published var isProcessing = false
     @Published var progressMessage = ""
-    @Published var showAlert = false
-    @Published var alertTitle = ""
-    @Published var alertMessage = ""
-
     private var patcher = ClaudePatcher()
     private var updateTimer: Timer?
+
+    var onStatusChange: (() -> Void)?
+    var onClosePanel: (() -> Void)?
+    var onShowPanel: (() -> Void)?
 
     init() {
         checkStatus()
         startUpdateMonitor()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func checkStatus() {
+        let oldStatus = status
         status = .checking
         let claudePath = ClaudePatcher.claudeAppPath
 
         guard FileManager.default.fileExists(atPath: claudePath) else {
             status = .notInstalled
             claudeVersion = ""
+            if status != oldStatus { onStatusChange?() }
             return
         }
 
         claudeVersion = patcher.getClaudeVersion() ?? "未知版本"
         status = patcher.isPatched() ? .patched : .unpatched
+        if status != oldStatus { onStatusChange?() }
     }
 
     func applyPatch() async {
+        guard !isProcessing else { return }
         isProcessing = true
         progressMessage = "正在退出 Claude Desktop..."
+
+        onClosePanel?()
 
         do {
             try await Task.sleep(nanoseconds: 100_000_000)
 
             patcher.quitClaude()
-            try await Task.sleep(nanoseconds: 2_000_000_000)
+            try await waitForClaudeToQuit()
 
             progressMessage = "正在备份并打补丁（需要输入密码）..."
 
@@ -56,8 +64,7 @@ class AppState: ObservableObject {
             try await runInBackground { try p.applyPatch() }
             patcher = p
 
-            progressMessage = "正在设置语言并重启..."
-            try patcher.writeLocaleConfig()
+            progressMessage = "正在重启 Claude Desktop..."
             try await Task.sleep(nanoseconds: 500_000_000)
             patcher.launchClaude()
             try await Task.sleep(nanoseconds: 2_000_000_000)
@@ -65,23 +72,29 @@ class AppState: ObservableObject {
             status = .patched
             isProcessing = false
             progressMessage = ""
-            showSuccess("汉化完成", "Claude Desktop 已切换为中文界面。")
+            onStatusChange?()
+            sendNotification("汉化完成", "Claude Desktop 已切换为中文界面。")
         } catch {
-            showError("汉化失败", error.localizedDescription)
             isProcessing = false
             progressMessage = ""
+            checkStatus()
+            onShowPanel?()
+            sendNotification("汉化失败", error.localizedDescription)
         }
     }
 
     func removePatch() async {
+        guard !isProcessing else { return }
         isProcessing = true
         progressMessage = "正在退出 Claude Desktop..."
+
+        onClosePanel?()
 
         do {
             try await Task.sleep(nanoseconds: 100_000_000)
 
             patcher.quitClaude()
-            try await Task.sleep(nanoseconds: 2_000_000_000)
+            try await waitForClaudeToQuit()
 
             progressMessage = "正在恢复原版..."
             let p = patcher
@@ -94,12 +107,25 @@ class AppState: ObservableObject {
             status = .unpatched
             isProcessing = false
             progressMessage = ""
-            showSuccess("恢复完成", "Claude Desktop 已恢复为原版。")
+            onStatusChange?()
+            sendNotification("恢复完成", "Claude Desktop 已恢复为原版。")
         } catch {
-            showError("恢复失败", error.localizedDescription)
             isProcessing = false
             progressMessage = ""
+            checkStatus()
+            onShowPanel?()
+            sendNotification("恢复失败", error.localizedDescription)
         }
+    }
+
+    private func waitForClaudeToQuit() async throws {
+        for _ in 0..<30 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+            if !patcher.isClaudeRunning() { return }
+        }
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.Claude")
+            .forEach { $0.forceTerminate() }
+        try await Task.sleep(nanoseconds: 1_000_000_000)
     }
 
     private func runInBackground(_ work: @escaping @Sendable () throws -> Void) async throws {
@@ -123,15 +149,12 @@ class AppState: ObservableObject {
         }
     }
 
-    private func showSuccess(_ title: String, _ message: String) {
-        alertTitle = title
-        alertMessage = message
-        showAlert = true
-    }
-
-    private func showError(_ title: String, _ message: String) {
-        alertTitle = title
-        alertMessage = message
-        showAlert = true
+    private func sendNotification(_ title: String, _ message: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 }

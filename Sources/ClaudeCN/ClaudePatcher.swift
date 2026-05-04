@@ -8,8 +8,6 @@ struct ClaudePatcher {
     private static let configFile = configDir.appendingPathComponent("config.json")
     private static let backupDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/ClaudeCN/backups").path
-    private static let backupSuffix = "backup-before-zh-CN"
-
     private static let frontendI18nRel = "Contents/Resources/ion-dist/i18n"
     private static let frontendAssetsRel = "Contents/Resources/ion-dist/assets/v1"
     private static let desktopResourcesRel = "Contents/Resources"
@@ -51,7 +49,6 @@ struct ClaudePatcher {
         }
 
         let tempDir = NSTemporaryDirectory() + "ClaudeCN-restore-" + UUID().uuidString
-        defer { try? fm.removeItem(atPath: tempDir) }
         try fm.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
 
         let unzip = Process()
@@ -60,13 +57,24 @@ struct ClaudePatcher {
         try unzip.run()
         unzip.waitUntilExit()
         guard unzip.terminationStatus == 0 else {
+            try? fm.removeItem(atPath: tempDir)
             throw PatchError.privilegedCommandFailed("解压备份失败")
         }
 
-        try runPrivilegedBatch(commands: [
-            ["rm", "-rf", Self.claudeAppPath],
-            ["mv", tempDir + "/Claude.app", Self.claudeAppPath],
-        ])
+        let trashPath = NSTemporaryDirectory() + "ClaudeCN-old-" + UUID().uuidString
+        do {
+            try runPrivilegedBatch(commands: [
+                ["mv", Self.claudeAppPath, trashPath],
+                ["mv", tempDir + "/Claude.app", Self.claudeAppPath],
+            ])
+        } catch {
+            // 第二步 mv 失败时，把旧 app 移回来
+            try? runPrivilegedRaw("mv '\(trashPath)' '\(Self.claudeAppPath)'")
+            try? fm.removeItem(atPath: tempDir)
+            throw error
+        }
+        try? fm.removeItem(atPath: tempDir)
+        try? runPrivilegedRaw("rm -rf '\(trashPath)'")
 
         removeLocaleConfig()
     }
@@ -84,7 +92,20 @@ struct ClaudePatcher {
         try fm.createDirectory(atPath: Self.backupDir, withIntermediateDirectories: true)
 
         let backupZip = Self.backupDir + "/Claude-original.zip"
-        if !fm.fileExists(atPath: backupZip) {
+        let backupVersionFile = Self.backupDir + "/backup-version.txt"
+        let currentVersion = getClaudeVersion() ?? ""
+
+        var needsBackup = !fm.fileExists(atPath: backupZip)
+        if !needsBackup {
+            let storedVersion = (try? String(contentsOfFile: backupVersionFile, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if storedVersion != currentVersion {
+                try? fm.removeItem(atPath: backupZip)
+                needsBackup = true
+            }
+        }
+
+        if needsBackup {
             let zip = Process()
             zip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
             zip.arguments = ["-ck", "--keepParent", appPath, backupZip]
@@ -93,6 +114,7 @@ struct ClaudePatcher {
             guard zip.terminationStatus == 0 else {
                 throw PatchError.privilegedCommandFailed("备份压缩失败")
             }
+            try? currentVersion.write(toFile: backupVersionFile, atomically: true, encoding: .utf8)
         }
 
         let tempDir = NSTemporaryDirectory() + "ClaudeCN-patch-" + UUID().uuidString
@@ -114,10 +136,17 @@ struct ClaudePatcher {
         try resignApp(appPath: tempApp)
         try clearQuarantine(appPath: tempApp)
 
-        try runPrivilegedBatch(commands: [
-            ["rm", "-rf", Self.claudeAppPath],
-            ["mv", tempApp, Self.claudeAppPath],
-        ])
+        let trashPath = NSTemporaryDirectory() + "ClaudeCN-old-" + UUID().uuidString
+        do {
+            try runPrivilegedBatch(commands: [
+                ["mv", Self.claudeAppPath, trashPath],
+                ["mv", tempApp, Self.claudeAppPath],
+            ])
+        } catch {
+            try? runPrivilegedRaw("mv '\(trashPath)' '\(Self.claudeAppPath)'")
+            throw error
+        }
+        try? runPrivilegedRaw("rm -rf '\(trashPath)'")
 
         try writeLocaleConfig()
     }
@@ -140,18 +169,17 @@ struct ClaudePatcher {
             throw PatchError.languageFileNotFound("index-*.js")
         }
 
-        let pattern = #"\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"(.*?)\]"#
+        let pattern = #"(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*)\]"#
         let regex = try NSRegularExpression(pattern: pattern)
-        let replacement = #"["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID","zh-CN"]"#
 
         for file in files {
             let fullPath = assetsDir + "/" + file
-            var text = try String(contentsOfFile: fullPath, encoding: .utf8)
+            let text = try String(contentsOfFile: fullPath, encoding: .utf8)
 
             if text.contains("\"zh-CN\"") { continue }
 
             let range = NSRange(text.startIndex..., in: text)
-            let patched = regex.stringByReplacingMatches(in: text, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+            let patched = regex.stringByReplacingMatches(in: text, range: range, withTemplate: #"$1,"zh-CN"]"#)
 
             if patched != text {
                 try patched.write(toFile: fullPath, atomically: true, encoding: .utf8)
@@ -266,6 +294,8 @@ struct ClaudePatcher {
     // MARK: - Step 5: Resign
 
     private mutating func resignApp(appPath: String) throws {
+        entitlementsTempDir = ""
+        entitlementsCounter = 0
         let contents = appPath + "/Contents"
         let fm = FileManager.default
         var fileTargets: [String] = []
@@ -304,6 +334,7 @@ struct ClaudePatcher {
     }
 
     private var entitlementsTempDir: String = ""
+    private var entitlementsCounter: Int = 0
 
     private mutating func codesign(_ path: String) throws {
         if entitlementsTempDir.isEmpty {
@@ -319,7 +350,8 @@ struct ClaudePatcher {
 
         if var ent = entitlements {
             ent["com.apple.security.cs.disable-library-validation"] = true
-            let plistPath = entitlementsTempDir + "/\(abs(path.hashValue)).plist"
+            entitlementsCounter += 1
+            let plistPath = entitlementsTempDir + "/\(entitlementsCounter).plist"
             let plistData = try PropertyListSerialization.data(
                 fromPropertyList: ent, format: .xml, options: 0)
             try plistData.write(to: URL(fileURLWithPath: plistPath))
@@ -374,6 +406,10 @@ struct ClaudePatcher {
         quit.arguments = ["-e", "tell application \"Claude\" to quit"]
         try? quit.run()
         quit.waitUntilExit()
+    }
+
+    func isClaudeRunning() -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.Claude").isEmpty
     }
 
     func launchClaude() {
@@ -453,15 +489,11 @@ struct ClaudePatcher {
         try runPrivilegedRaw(joined)
     }
 
-    private func runPrivileged(command: String, arguments: [String]) throws {
-        let fullCommand = ([command] + arguments)
-            .map { $0.contains(" ") ? "'\($0)'" : $0 }
-            .joined(separator: " ")
-        try runPrivilegedRaw(fullCommand)
-    }
-
     private func runPrivilegedRaw(_ shellCommand: String) throws {
-        let script = "do shell script \"\(shellCommand)\" with administrator privileges"
+        let escaped = shellCommand
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = "do shell script \"\(escaped)\" with administrator privileges"
         guard let appleScript = NSAppleScript(source: script) else {
             throw PatchError.scriptFailed
         }

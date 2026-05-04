@@ -14,11 +14,6 @@ struct MenuBarView: View {
             footerSection
         }
         .frame(width: 280)
-        .alert(appState.alertTitle, isPresented: $appState.showAlert) {
-            Button("好的") {}
-        } message: {
-            Text(appState.alertMessage)
-        }
     }
 
     private var headerSection: some View {
