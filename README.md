@@ -64,10 +64,6 @@ ClaudeCN 通过以下方式实现汉化：
 - macOS 13.0 (Ventura) 或更高版本
 - Claude Desktop 已安装
 
-## 致谢
-
-- 翻译资源参考了 [claude-desktop-zh-cn](https://github.com/javaht/claude-desktop-zh-cn) 项目
-
 ## 声明
 
 本项目为社区开源工具，与 Anthropic 公司无关，非官方产品。
