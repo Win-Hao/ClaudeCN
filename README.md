@@ -17,7 +17,7 @@
 
 1. 从 [Releases](../../releases) 页面下载最新的 `.dmg` 文件
 2. 打开 DMG，将 ClaudeCN 拖入 Applications 文件夹
-3. 从启动台或 Applications 打开 ClaudeCN
+3. 首次打开：**右键点击** ClaudeCN.app → 选择「打开」→ 在弹窗中点「打开」（仅首次需要，因为 app 未经 Apple 公证）
 
 ### 方式二：源码构建
 
