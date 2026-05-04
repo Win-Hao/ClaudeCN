@@ -422,7 +422,6 @@ struct ClaudePatcher {
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: Self.configFile)
 
-        UserDefaults.standard.removePersistentDomain(forName: "com.anthropic.Claude")
         let defaults = UserDefaults(suiteName: "com.anthropic.Claude")
         defaults?.set(["zh-CN", "zh-Hans", "en"], forKey: "AppleLanguages")
         defaults?.synchronize()
