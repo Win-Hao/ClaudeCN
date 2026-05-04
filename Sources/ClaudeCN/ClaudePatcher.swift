@@ -162,6 +162,23 @@ struct ClaudePatcher {
 
     // MARK: - Step 2: Merge frontend translation
 
+    private func findZstd() -> String? {
+        for path in ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"] {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        which.arguments = ["zstd"]
+        let pipe = Pipe()
+        which.standardOutput = pipe
+        which.standardError = Pipe()
+        try? which.run()
+        which.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (output?.isEmpty == false) ? output : nil
+    }
+
     private func mergeFrontendLocale(appPath: String) throws {
         let i18nDir = appPath + "/" + Self.frontendI18nRel
         let enUSPath = i18nDir + "/en-US.json"
@@ -178,26 +195,28 @@ struct ClaudePatcher {
         let zhCNPath = i18nDir + "/zh-CN.json"
         try mergedData.write(to: URL(fileURLWithPath: zhCNPath))
 
-        let zstPath = zhCNPath + ".zst"
-        let zstProcess = Process()
-        zstProcess.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/zstd")
-        zstProcess.arguments = ["-f", "--rm", zhCNPath, "-o", zstPath]
-        try? zstProcess.run()
-        zstProcess.waitUntilExit()
+        if let zstdPath = findZstd() {
+            let zstPath = zhCNPath + ".zst"
+            let zstProcess = Process()
+            zstProcess.executableURL = URL(fileURLWithPath: zstdPath)
+            zstProcess.arguments = ["-f", "--rm", zhCNPath, "-o", zstPath]
+            try? zstProcess.run()
+            zstProcess.waitUntilExit()
 
-        try mergedData.write(to: URL(fileURLWithPath: zhCNPath))
+            try mergedData.write(to: URL(fileURLWithPath: zhCNPath))
 
-        let overridesPath = i18nDir + "/zh-CN.overrides.json"
-        let overridesZstPath = overridesPath + ".zst"
-        try "{}".write(toFile: overridesPath, atomically: true, encoding: .utf8)
+            let overridesPath = i18nDir + "/zh-CN.overrides.json"
+            let overridesZstPath = overridesPath + ".zst"
+            try "{}".write(toFile: overridesPath, atomically: true, encoding: .utf8)
 
-        let zst2 = Process()
-        zst2.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/zstd")
-        zst2.arguments = ["-f", "--rm", overridesPath, "-o", overridesZstPath]
-        try? zst2.run()
-        zst2.waitUntilExit()
+            let zst2 = Process()
+            zst2.executableURL = URL(fileURLWithPath: zstdPath)
+            zst2.arguments = ["-f", "--rm", overridesPath, "-o", overridesZstPath]
+            try? zst2.run()
+            zst2.waitUntilExit()
 
-        try "{}".write(toFile: overridesPath, atomically: true, encoding: .utf8)
+            try "{}".write(toFile: overridesPath, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - Step 3: Install desktop locale
