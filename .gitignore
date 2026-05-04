@@ -1,0 +1,22 @@
+# Xcode
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+*.xcworkspace/
+build/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Temporary logo processing files
+logo.png
+logo.jpg
+logo_src.png
+logo_final.png
+logo_final_rounded.png
+logo_final_padded.png
+
+# Build output
+*.dmg
