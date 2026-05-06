@@ -1,5 +1,9 @@
 # ClaudeCN - Claude Desktop 汉化助手
 
+> **本软件完全免费** | 作者：**抖音Winhao学AI**（抖音号：**54927876676**）
+>
+> 严禁任何形式的商业使用、倒卖或收费分发。如果你是付费获得本软件的，说明你被骗了，请立即举报卖家。
+
 一键将 Claude Desktop 切换为中文界面，支持 macOS 和 Windows。
 
 ![ClaudeCN Screenshot](screenshots/menubar.png)
@@ -141,10 +145,18 @@ cargo build --release --target x86_64-pc-windows-gnu
 - 初始版本（macOS）
 - 一键汉化/恢复 Claude Desktop
 
+## 作者
+
+**抖音Winhao学AI**（抖音号：**54927876676**）
+
+欢迎关注作者抖音获取更多 AI 工具和教程。
+
 ## 声明
 
-本项目为社区开源工具，与 Anthropic 公司无关，非官方产品。
+- 本项目为社区开源工具，与 Anthropic 公司无关，非官方产品。
+- **本软件完全免费，严禁任何形式的商业使用**，包括但不限于：出售、收费分发、作为付费服务的一部分。
+- 如果你是通过付费渠道获得本软件的，你被骗了！请举报卖家并从本仓库免费下载。
 
 ## 许可证
 
-[MIT License](LICENSE)
+[CC BY-NC 4.0](LICENSE)（署名-非商业性使用）

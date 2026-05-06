@@ -11,6 +11,8 @@ struct MenuBarView: View {
             Divider()
             actionSection
             Divider()
+            watermarkSection
+            Divider()
             footerSection
         }
         .frame(width: 280)
@@ -121,6 +123,27 @@ struct MenuBarView: View {
             }
         }
         .padding(12)
+    }
+
+    private var watermarkSection: some View {
+        VStack(spacing: 3) {
+            Text("作者：抖音Winhao学AI")
+                .font(.caption2)
+                .fontWeight(.medium)
+            Text("抖音号：54927876676")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text("本软件完全免费，不可商业化")
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.orange)
+            Text("付费获取即被骗，请举报")
+                .font(.caption2)
+                .foregroundColor(.red)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
     }
 
     private var footerSection: some View {

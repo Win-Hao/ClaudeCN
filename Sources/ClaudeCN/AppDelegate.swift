@@ -55,6 +55,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showPopover()
         }
 
+        if !UserDefaults.standard.bool(forKey: "hasShownDisclaimer") {
+            showDisclaimer()
+        }
+
         appState.$isProcessing
             .receive(on: RunLoop.main)
             .sink { [weak self] processing in
@@ -125,5 +129,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closePopover() {
         popover.performClose(nil)
+    }
+
+    private func showDisclaimer() {
+        let alert = NSAlert()
+        alert.messageText = "免费声明"
+        alert.informativeText = """
+        本软件由「抖音Winhao学AI」（抖音号：54927876676）开发，完全免费。
+
+        严禁任何形式的商业使用，包括但不限于：
+        • 出售本软件或其修改版本
+        • 将本软件作为付费服务的一部分
+        • 利用本软件进行任何商业盈利活动
+
+        如果你是付费获得本软件的，说明你被骗了！请立即举报卖家。
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "我知道了，免费使用")
+        alert.runModal()
+        UserDefaults.standard.set(true, forKey: "hasShownDisclaimer")
     }
 }
