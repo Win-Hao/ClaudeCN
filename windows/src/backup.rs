@@ -57,8 +57,10 @@ pub fn create_backup(installation: &ClaudeInstallation) -> Result<(), BackupErro
                 if dest.exists() {
                     continue;
                 }
-                fs::copy(entry.path(), &dest)
-                    .map_err(|e| BackupError(format!("备份 {} 失败: {}", name, e)))?;
+                let data = fs::read(entry.path())
+                    .map_err(|e| BackupError(format!("读取 {} 失败: {}", name, e)))?;
+                fs::write(&dest, &data)
+                    .map_err(|e| BackupError(format!("写入备份 {} 失败: {}", name, e)))?;
             }
         }
     }
@@ -83,7 +85,9 @@ pub fn restore_backup(installation: &ClaudeInstallation) -> Result<(), BackupErr
             if name.starts_with("index-") && name.ends_with(".js") {
                 let dest = assets_dir.join(&name);
                 clear_readonly(&dest);
-                fs::copy(entry.path(), &dest)
+                let data = fs::read(entry.path())
+                    .map_err(|e| BackupError(format!("读取备份 {} 失败: {}", name, e)))?;
+                fs::write(&dest, &data)
                     .map_err(|e| BackupError(format!("恢复 {} 失败: {}", name, e)))?;
             }
         }
