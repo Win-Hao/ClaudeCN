@@ -43,21 +43,31 @@ fn setup_fonts(ctx: &egui::Context) {
                 "chinese".into(),
                 Arc::new(egui::FontData::from_owned(data)),
             );
-            fonts
-                .families
-                .get_mut(&egui::FontFamily::Proportional)
-                .unwrap()
-                .insert(0, "chinese".into());
-            fonts
-                .families
-                .get_mut(&egui::FontFamily::Monospace)
-                .unwrap()
-                .push("chinese".into());
+            if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                family.insert(0, "chinese".into());
+            }
+            if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+                family.push("chinese".into());
+            }
             break;
         }
     }
 
     ctx.set_fonts(fonts);
+}
+
+fn set_mutex<T>(mutex: &Mutex<T>, val: T) {
+    match mutex.lock() {
+        Ok(mut guard) => *guard = val,
+        Err(e) => *e.into_inner() = val,
+    }
+}
+
+fn get_mutex<T: Clone>(mutex: &Mutex<T>) -> Option<T> {
+    match mutex.lock() {
+        Ok(guard) => Some(guard.clone()),
+        Err(e) => Some(e.into_inner().clone()),
+    }
 }
 
 struct App {
@@ -66,22 +76,35 @@ struct App {
     message: Arc<Mutex<String>>,
     is_processing: Arc<Mutex<bool>>,
     needs_refresh: Arc<Mutex<bool>>,
+    is_admin: bool,
 }
 
 impl App {
     fn new() -> Self {
-        let installation = detector::find_claude();
+        let is_admin = check_admin();
+        let installation = if is_admin {
+            detector::find_claude()
+        } else {
+            None
+        };
         let status = match &installation {
             Some(inst) => detector::check_patch_status(inst),
             None => detector::PatchStatus::NotInstalled,
         };
 
+        let message = if is_admin {
+            "就绪".to_string()
+        } else {
+            "请右键以管理员身份运行本程序".to_string()
+        };
+
         Self {
             status,
             installation,
-            message: Arc::new(Mutex::new("就绪".into())),
+            message: Arc::new(Mutex::new(message)),
             is_processing: Arc::new(Mutex::new(false)),
             needs_refresh: Arc::new(Mutex::new(false)),
+            is_admin,
         }
     }
 
@@ -104,38 +127,48 @@ impl App {
         let busy = self.is_processing.clone();
         let refresh = self.needs_refresh.clone();
 
-        *busy.lock().unwrap() = true;
+        set_mutex(&busy, true);
 
         thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 task(&installation, &|s| {
-                    *msg.lock().unwrap() = s.to_string();
+                    set_mutex(&msg, s.to_string());
                 })
             }));
 
             match result {
-                Ok(Ok(())) => *msg.lock().unwrap() = success_msg.into(),
-                Ok(Err(e)) => *msg.lock().unwrap() = format!("{}: {}", fail_prefix, e),
-                Err(_) => *msg.lock().unwrap() = format!("{}：发生内部错误", fail_prefix),
+                Ok(Ok(())) => set_mutex(&msg, success_msg.into()),
+                Ok(Err(e)) => set_mutex(&msg, format!("{}: {}", fail_prefix, e)),
+                Err(_) => set_mutex(&msg, format!("{}：发生内部错误", fail_prefix)),
             }
 
-            *busy.lock().unwrap() = false;
-            *refresh.lock().unwrap() = true;
+            set_mutex(&busy, false);
+            set_mutex(&refresh, true);
         });
     }
 }
 
+fn check_admin() -> bool {
+    std::process::Command::new("net")
+        .args(["session"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let is_busy = *self.is_processing.lock().unwrap();
+        let is_busy = get_mutex(&self.is_processing).unwrap_or(false);
 
         if is_busy {
             ctx.request_repaint();
         }
 
-        if *self.needs_refresh.lock().unwrap() {
+        if get_mutex(&self.needs_refresh).unwrap_or(false) {
             self.refresh_status();
-            *self.needs_refresh.lock().unwrap() = false;
+            set_mutex(&self.needs_refresh, false);
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -143,7 +176,7 @@ impl eframe::App for App {
             ui.vertical_centered(|ui| {
                 ui.heading("Claude 桌面端汉化助手");
                 ui.label(
-                    egui::RichText::new("v1.0.0")
+                    egui::RichText::new("v1.2.0")
                         .size(12.0)
                         .color(egui::Color32::GRAY),
                 );
@@ -153,7 +186,15 @@ impl eframe::App for App {
             ui.separator();
             ui.add_space(12.0);
 
-            // --- status ---
+            if !self.is_admin {
+                ui.label(
+                    egui::RichText::new("⚠ 请右键以管理员身份运行本程序")
+                        .color(egui::Color32::from_rgb(220, 80, 80))
+                        .size(14.0),
+                );
+                ui.add_space(12.0);
+            }
+
             egui::Grid::new("status_grid")
                 .num_columns(2)
                 .spacing([8.0, 6.0])
@@ -198,12 +239,12 @@ impl eframe::App for App {
 
             ui.add_space(24.0);
 
-            // --- buttons ---
             ui.vertical_centered(|ui| {
                 ui.horizontal(|ui| {
                     let btn_size = egui::vec2(160.0, 40.0);
 
-                    let can_patch = self.installation.is_some()
+                    let can_patch = self.is_admin
+                        && self.installation.is_some()
                         && self.status != detector::PatchStatus::Patched
                         && !is_busy;
 
@@ -223,7 +264,8 @@ impl eframe::App for App {
 
                     ui.add_space(12.0);
 
-                    let can_restore = self.installation.is_some()
+                    let can_restore = self.is_admin
+                        && self.installation.is_some()
                         && self.status == detector::PatchStatus::Patched
                         && !is_busy;
 
@@ -254,7 +296,7 @@ impl eframe::App for App {
                     .clicked()
                 {
                     self.refresh_status();
-                    *self.message.lock().unwrap() = "状态已刷新".into();
+                    set_mutex(&self.message, "状态已刷新".into());
                 }
             });
 
@@ -262,8 +304,7 @@ impl eframe::App for App {
             ui.separator();
             ui.add_space(8.0);
 
-            // --- message ---
-            let msg = self.message.lock().unwrap().clone();
+            let msg = get_mutex(&self.message).unwrap_or_default();
             ui.horizontal(|ui| {
                 ui.label("状态:");
                 if is_busy {

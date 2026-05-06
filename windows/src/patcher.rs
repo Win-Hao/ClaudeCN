@@ -92,33 +92,40 @@ pub fn remove_patch(
 }
 
 fn take_ownership(resources_dir: &Path) -> Result<(), PatchError> {
-    let app_dir = resources_dir
-        .parent()
-        .unwrap_or(resources_dir)
-        .to_string_lossy()
-        .to_string();
+    let dirs = [
+        resources_dir.to_path_buf(),
+        resources_dir.join("ion-dist").join("i18n"),
+        resources_dir.join("ion-dist").join("i18n").join("statsig"),
+        resources_dir.join("ion-dist").join("assets").join("v1"),
+    ];
 
-    let takeown = std::process::Command::new("takeown")
-        .args(["/F", &app_dir, "/R", "/D", "Y"])
-        .output()
-        .map_err(|e| PatchError::Io(format!("takeown 失败: {}", e)))?;
+    for dir in &dirs {
+        let path = dir.to_string_lossy().to_string();
 
-    if !takeown.status.success() {
-        let stderr = String::from_utf8_lossy(&takeown.stderr);
-        return Err(PatchError::Io(format!("takeown 失败: {}", stderr)));
+        let _ = std::process::Command::new("takeown")
+            .args(["/F", &path, "/R", "/D", "Y"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        let _ = std::process::Command::new("icacls")
+            .args([&path, "/grant", "Administrators:F", "/T", "/Q"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 
-    let icacls = std::process::Command::new("icacls")
-        .args([&app_dir, "/grant", "Administrators:F", "/T", "/Q"])
-        .output()
-        .map_err(|e| PatchError::Io(format!("icacls 失败: {}", e)))?;
-
-    if !icacls.status.success() {
-        let stderr = String::from_utf8_lossy(&icacls.stderr);
-        return Err(PatchError::Io(format!("icacls 失败: {}", stderr)));
+    let test_file = resources_dir.join(".claude_cn_test");
+    match std::fs::write(&test_file, "test") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&test_file);
+            Ok(())
+        }
+        Err(e) => Err(PatchError::Io(format!(
+            "无法写入 Claude 目录，请确认以管理员身份运行: {}",
+            e
+        ))),
     }
-
-    Ok(())
 }
 
 fn kill_claude() {
