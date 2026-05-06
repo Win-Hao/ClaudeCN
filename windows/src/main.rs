@@ -21,8 +21,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([420.0, 370.0])
-            .with_resizable(false),
+            .with_inner_size([460.0, 420.0])
+            .with_resizable(true),
         ..Default::default()
     };
 
@@ -309,9 +309,9 @@ impl eframe::App for App {
                 }
             });
 
-            ui.add_space(16.0);
+            ui.add_space(12.0);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(4.0);
 
             let msg = get_mutex(&self.message).unwrap_or_default();
             ui.horizontal(|ui| {
@@ -323,13 +323,22 @@ impl eframe::App for App {
             });
 
             ui.add_space(4.0);
-            let log_path = logger::log_path();
-            if !log_path.is_empty() {
-                ui.label(
-                    egui::RichText::new(format!("日志: {}", log_path))
-                        .size(10.0)
-                        .color(egui::Color32::DARK_GRAY),
-                );
+
+            let lines = logger::recent_lines();
+            if !lines.is_empty() {
+                ui.collapsing("运行日志（点击展开，可复制）", |ui| {
+                    let mut log_text = lines.join("\n");
+                    egui::ScrollArea::vertical()
+                        .max_height(120.0)
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut log_text)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
+                });
             }
         });
     }
