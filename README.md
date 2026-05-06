@@ -1,6 +1,6 @@
 # ClaudeCN - Claude Desktop 汉化助手
 
-一键将 Claude Desktop 切换为中文界面的 macOS 菜单栏工具。
+一键将 Claude Desktop 切换为中文界面，支持 macOS 和 Windows。
 
 ![ClaudeCN Screenshot](screenshots/menubar.png)
 
@@ -9,9 +9,8 @@
 - 一键汉化 Claude Desktop 界面（前端、桌面端、原生菜单）
 - 一键恢复原版（完整备份，安全无损）
 - 自动检测 Claude Desktop 安装状态和汉化状态
-- 状态栏实时显示处理进度（旋转动画 + 进度文字）
-- 系统通知反馈操作结果
-- 菜单栏常驻，不占用 Dock 栏
+- 实时显示处理进度
+- 不修改任何 Claude 核心功能代码
 
 ## 翻译覆盖率
 
@@ -20,9 +19,15 @@
 - 功能特性描述翻译：46 条
 - 覆盖 Cowork、Connectors、Claude Code、隐私设置等全部新功能
 
-## 安装
+---
 
-### 方式一：DMG 安装（推荐）
+## macOS 版
+
+基于 Swift + SwiftUI，菜单栏常驻应用。
+
+### 安装
+
+#### 方式一：DMG 安装（推荐）
 
 1. 从 [Releases](../../releases) 页面下载最新的 `.dmg` 文件
 2. 打开 DMG，将 ClaudeCN 拖入 Applications 文件夹
@@ -32,7 +37,7 @@
    ```
 4. 从启动台或 Applications 打开 ClaudeCN
 
-### 方式二：源码构建
+#### 方式二：源码构建
 
 需要 [XcodeGen](https://github.com/yonaskolb/XcodeGen) 和 Xcode 16+。
 
@@ -45,7 +50,7 @@ open ClaudeCN.xcodeproj
 
 在 Xcode 中选择 Release 配置，Build 即可。
 
-## 使用方法
+### 使用方法
 
 1. 确保已安装 [Claude Desktop](https://claude.ai/download)
 2. 打开 ClaudeCN，菜单栏会出现地球图标
@@ -56,36 +61,73 @@ open ClaudeCN.xcodeproj
 
 如需恢复，点击「恢复原版」即可还原。
 
-## 工作原理
-
-ClaudeCN 通过以下方式实现汉化：
-
-1. 备份原版 Claude.app（首次汉化时创建 zip 备份）
-2. 将中文翻译文件注入 Claude.app 的 i18n 目录（与 en-US.json 合并，确保未翻译的 key 回退为英文）
-3. 在语言白名单中添加 `zh-CN`
-4. 设置 Claude Desktop 的语言偏好为中文
-5. 重新签名应用，保留原有权限
-
-## 安全性
-
-- 首次汉化时自动备份原版 Claude.app（zip 格式），Claude 更新后自动重新备份
-- 恢复功能从备份还原，确保与原版完全一致
-- 使用原子替换操作（mv），失败时自动回滚
-- 不修改任何 Claude 的核心功能代码
-- 不收集任何用户数据
-
-## 系统要求
+### 系统要求
 
 - macOS 13.0 (Ventura) 或更高版本
 - Claude Desktop 已安装
+
+---
+
+## Windows 版
+
+基于 Rust 开发，单文件 exe，无需安装运行时。
+
+### 安装
+
+1. 从 [Releases](../../releases) 页面下载 `Claude汉化助手.exe`
+2. **右键 → 以管理员身份运行**（必须，Claude 安装在受保护目录）
+3. 程序会自动检测 Claude Desktop 的安装状态
+4. 点击「一键汉化」即可
+5. 汉化完成后 Claude Desktop 会自动重启为中文界面
+
+如需恢复，点击「一键恢复」即可还原为英文版本。
+
+### 源码构建
+
+```bash
+cd windows
+
+# 本机编译（Windows 上）
+cargo build --release
+
+# 从 macOS 交叉编译
+rustup target add x86_64-pc-windows-gnu
+brew install mingw-w64
+cargo build --release --target x86_64-pc-windows-gnu
+```
+
+### 系统要求
+
+- Windows 10/11（x64）
+- Claude Desktop 已安装（MSIX 版本）
+- 管理员权限
+
+---
+
+## 工作原理
+
+两个版本的汉化原理相同：
+
+1. 备份原始文件（macOS: zip 备份整个 Claude.app；Windows: 备份 index.js）
+2. 将中文翻译文件注入 Claude 的 i18n 目录（与 en-US.json 合并，确保未翻译的 key 回退为英文）
+3. 在语言白名单中添加 `zh-CN`（唯一的 JS 修改，仅添加一个数组元素）
+4. 设置 Claude Desktop 的语言偏好为中文
+5. macOS 额外步骤：重新签名应用，保留原有权限
+
+## 安全性
+
+- 自动备份原始文件，Claude 更新后自动重新备份
+- 恢复功能从备份还原，确保与原版完全一致
+- 不修改任何 Claude 的核心功能代码
+- 不收集任何用户数据
 
 ## 更新日志
 
 ### v1.2.0
 
 - 新增 1,500 条翻译，完整覆盖最新版 Claude Desktop 全部 i18n key
-- 覆盖 Cowork（协作工作）、Connectors（连接器）、Plugins（插件市场）等新功能
-- 覆盖 Claude Code 相关 UI、隐私/安全设置页面、计费/订阅页面
+- 覆盖 Cowork、Connectors、Plugins、Claude Code 等全部新功能
+- 新增 Windows 版（Rust GUI 工具）
 - 翻译文件与 en-US.json 合并，新增 key 自动回退英文
 
 ### v1.1.0
@@ -96,7 +138,7 @@ ClaudeCN 通过以下方式实现汉化：
 
 ### v1.0.0
 
-- 初始版本
+- 初始版本（macOS）
 - 一键汉化/恢复 Claude Desktop
 
 ## 声明
