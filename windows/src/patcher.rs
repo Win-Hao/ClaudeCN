@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::backup;
 use crate::detector::{config_path, ClaudeInstallation};
+use crate::logger;
 
 const FRONTEND_ZH_CN: &str = include_str!("../resources/zh-CN.json");
 const DESKTOP_ZH_CN: &str = include_str!("../resources/desktop-zh-CN.json");
@@ -34,26 +35,45 @@ pub fn apply_patch(
     installation: &ClaudeInstallation,
     on_progress: &dyn Fn(&str),
 ) -> Result<(), PatchError> {
+    logger::log(&format!("apply_patch: resources_dir={}", installation.resources_dir.display()));
+
     on_progress("正在关闭 Claude...");
+    logger::log("step: kill_claude");
     kill_claude();
+    logger::log("step: kill_claude done");
 
     on_progress("正在获取文件权限...");
+    logger::log("step: take_ownership");
     take_ownership(installation)?;
+    logger::log("step: take_ownership done");
 
     on_progress("正在备份原始文件...");
-    backup::create_backup(installation).map_err(|e| PatchError::Backup(e.to_string()))?;
+    logger::log("step: create_backup");
+    backup::create_backup(installation).map_err(|e| {
+        logger::log(&format!("create_backup FAILED: {}", e));
+        PatchError::Backup(e.to_string())
+    })?;
+    logger::log("step: create_backup done");
 
     on_progress("正在写入翻译文件...");
+    logger::log("step: write_translation_files");
     write_translation_files(installation)?;
+    logger::log("step: write_translation_files done");
 
     on_progress("正在注入语言白名单...");
+    logger::log("step: patch_language_whitelist");
     patch_language_whitelist(installation)?;
+    logger::log("step: patch_language_whitelist done");
 
     on_progress("正在设置语言配置...");
+    logger::log("step: set_config_locale");
     set_config_locale()?;
+    logger::log("step: set_config_locale done");
 
     on_progress("正在重启 Claude...");
+    logger::log("step: start_claude");
     start_claude();
+    logger::log("apply_patch completed successfully");
 
     Ok(())
 }
@@ -62,14 +82,25 @@ pub fn remove_patch(
     installation: &ClaudeInstallation,
     on_progress: &dyn Fn(&str),
 ) -> Result<(), PatchError> {
+    logger::log("remove_patch: starting");
+
     on_progress("正在关闭 Claude...");
+    logger::log("step: kill_claude");
     kill_claude();
+    logger::log("step: kill_claude done");
 
     on_progress("正在获取文件权限...");
+    logger::log("step: take_ownership");
     take_ownership(installation)?;
+    logger::log("step: take_ownership done");
 
     on_progress("正在恢复原始文件...");
-    backup::restore_backup(installation).map_err(|e| PatchError::Backup(e.to_string()))?;
+    logger::log("step: restore_backup");
+    backup::restore_backup(installation).map_err(|e| {
+        logger::log(&format!("restore_backup FAILED: {}", e));
+        PatchError::Backup(e.to_string())
+    })?;
+    logger::log("step: restore_backup done");
 
     on_progress("正在清理翻译文件...");
     let _ = fs::remove_file(installation.resources_dir.join("zh-CN.json"));
@@ -125,28 +156,36 @@ fn take_ownership(installation: &ClaudeInstallation) -> Result<(), PatchError> {
     }
 
     let test_file = installation.resources_dir.join(".claude_cn_test");
+    logger::log(&format!("write test: {}", test_file.display()));
     match fs::write(&test_file, "test") {
         Ok(()) => {
             let _ = fs::remove_file(&test_file);
+            logger::log("write test: OK");
             Ok(())
         }
-        Err(e) => Err(PatchError::Io(format!(
-            "无法写入 Claude 目录，请确认以管理员身份运行: {}",
-            e
-        ))),
+        Err(e) => {
+            logger::log(&format!("write test FAILED: {}", e));
+            Err(PatchError::Io(format!(
+                "无法写入 Claude 目录，请确认以管理员身份运行: {}",
+                e
+            )))
+        }
     }
 }
 
 fn kill_claude() {
-    let _ = std::process::Command::new("powershell")
+    let result = std::process::Command::new("powershell")
         .args([
+            "-NoProfile",
             "-Command",
             "Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Stop-Process -Force",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+    logger::log(&format!("kill_claude powershell result: {:?}", result));
     std::thread::sleep(std::time::Duration::from_secs(2));
+    logger::log("kill_claude sleep done, process should be dead");
 }
 
 fn start_claude() {

@@ -2,6 +2,7 @@
 
 mod backup;
 mod detector;
+mod logger;
 mod patcher;
 
 use std::sync::{Arc, Mutex};
@@ -10,18 +11,17 @@ use std::thread;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    logger::init();
+    logger::log("Application starting");
+
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("PANIC: {}\n{:?}", info, std::backtrace::Backtrace::capture());
-        if let Ok(dir) = std::env::var("LOCALAPPDATA") {
-            let log_dir = std::path::PathBuf::from(dir).join("ClaudeCN");
-            let _ = std::fs::create_dir_all(&log_dir);
-            let _ = std::fs::write(log_dir.join("crash.log"), &msg);
-        }
+        logger::log(&msg);
     }));
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([420.0, 340.0])
+            .with_inner_size([420.0, 370.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -321,6 +321,16 @@ impl eframe::App for App {
                 }
                 ui.label(&msg);
             });
+
+            ui.add_space(4.0);
+            let log_path = logger::log_path();
+            if !log_path.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!("日志: {}", log_path))
+                        .size(10.0)
+                        .color(egui::Color32::DARK_GRAY),
+                );
+            }
         });
     }
 }
