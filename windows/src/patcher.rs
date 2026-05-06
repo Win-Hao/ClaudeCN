@@ -38,7 +38,7 @@ pub fn apply_patch(
     kill_claude();
 
     on_progress("正在获取文件权限...");
-    take_ownership(&installation.resources_dir)?;
+    take_ownership(installation)?;
 
     on_progress("正在备份原始文件...");
     backup::create_backup(installation).map_err(|e| PatchError::Backup(e.to_string()))?;
@@ -66,7 +66,7 @@ pub fn remove_patch(
     kill_claude();
 
     on_progress("正在获取文件权限...");
-    take_ownership(&installation.resources_dir)?;
+    take_ownership(installation)?;
 
     on_progress("正在恢复原始文件...");
     backup::restore_backup(installation).map_err(|e| PatchError::Backup(e.to_string()))?;
@@ -91,34 +91,43 @@ pub fn remove_patch(
     Ok(())
 }
 
-fn take_ownership(resources_dir: &Path) -> Result<(), PatchError> {
-    let dirs = [
-        resources_dir.to_path_buf(),
-        resources_dir.join("ion-dist").join("i18n"),
-        resources_dir.join("ion-dist").join("i18n").join("statsig"),
-        resources_dir.join("ion-dist").join("assets").join("v1"),
+fn grant_access(path: &str) {
+    let _ = std::process::Command::new("icacls")
+        .args([path, "/grant", "Administrators:F", "/Q"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+fn take_ownership(installation: &ClaudeInstallation) -> Result<(), PatchError> {
+    let targets = [
+        installation.resources_dir.join("zh-CN.json"),
+        installation.resources_dir.join("en-US.json"),
+        installation.ion_dist_dir.join("i18n"),
+        installation.ion_dist_dir.join("i18n").join("statsig"),
     ];
 
-    for dir in &dirs {
-        let path = dir.to_string_lossy().to_string();
-
-        let _ = std::process::Command::new("takeown")
-            .args(["/F", &path, "/R", "/D", "Y"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-
-        let _ = std::process::Command::new("icacls")
-            .args([&path, "/grant", "Administrators:F", "/T", "/Q"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+    for target in &targets {
+        let path = target.to_string_lossy().to_string();
+        grant_access(&path);
     }
 
-    let test_file = resources_dir.join(".claude_cn_test");
-    match std::fs::write(&test_file, "test") {
+    let assets_dir = installation.ion_dist_dir.join("assets").join("v1");
+    if assets_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&assets_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("index-") && name.ends_with(".js") {
+                    grant_access(&entry.path().to_string_lossy());
+                }
+            }
+        }
+    }
+
+    let test_file = installation.resources_dir.join(".claude_cn_test");
+    match fs::write(&test_file, "test") {
         Ok(()) => {
-            let _ = std::fs::remove_file(&test_file);
+            let _ = fs::remove_file(&test_file);
             Ok(())
         }
         Err(e) => Err(PatchError::Io(format!(
@@ -130,7 +139,10 @@ fn take_ownership(resources_dir: &Path) -> Result<(), PatchError> {
 
 fn kill_claude() {
     let _ = std::process::Command::new("powershell")
-        .args(["-Command", "Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Stop-Process -Force"])
+        .args([
+            "-Command",
+            "Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Stop-Process -Force",
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -142,17 +154,32 @@ fn start_claude() {
         let uri = format!(r"shell:AppsFolder\{}!Claude", family);
         let _ = std::process::Command::new("cmd")
             .args(["/C", "start", "", &uri])
-            .spawn();
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 
 fn get_claude_package_family() -> Option<String> {
     let output = std::process::Command::new("powershell")
-        .args(["-Command", "(Get-AppxPackage *Claude*).PackageFamilyName"])
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-AppxPackage -Name '*Claude*' | Select-Object -First 1).PackageFamilyName",
+        ])
         .output()
         .ok()?;
-    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if name.is_empty() { None } else { Some(name) }
+    let name = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn write_with_retry(path: &Path, content: &str) -> Result<(), PatchError> {
@@ -199,19 +226,19 @@ fn merge_json(base: &Value, overlay: &Value) -> Value {
 }
 
 fn write_translation_files(installation: &ClaudeInstallation) -> Result<(), PatchError> {
-    // Desktop translations
     let desktop_path = installation.resources_dir.join("zh-CN.json");
     write_with_retry(&desktop_path, DESKTOP_ZH_CN)?;
 
-    // Frontend translations — merge with en-US.json for completeness
     let frontend_path = installation.ion_dist_dir.join("i18n").join("zh-CN.json");
     let en_us_path = installation.ion_dist_dir.join("i18n").join("en-US.json");
 
     if en_us_path.exists() {
         let en_us_content = fs::read_to_string(&en_us_path)
             .map_err(|e| PatchError::Io(format!("读取 en-US.json 失败: {}", e)))?;
-        let en_us: Value = serde_json::from_str(&en_us_content).unwrap_or(Value::Object(Default::default()));
-        let zh_cn: Value = serde_json::from_str(FRONTEND_ZH_CN).unwrap_or(Value::Object(Default::default()));
+        let en_us: Value =
+            serde_json::from_str(&en_us_content).unwrap_or(Value::Object(Default::default()));
+        let zh_cn: Value =
+            serde_json::from_str(FRONTEND_ZH_CN).unwrap_or(Value::Object(Default::default()));
         let merged = merge_json(&en_us, &zh_cn);
         let merged_str = serde_json::to_string(&merged)
             .map_err(|e| PatchError::Io(format!("序列化合并结果失败: {}", e)))?;
@@ -220,7 +247,6 @@ fn write_translation_files(installation: &ClaudeInstallation) -> Result<(), Patc
         write_with_retry(&frontend_path, FRONTEND_ZH_CN)?;
     }
 
-    // Statsig translations
     let statsig_path = installation
         .ion_dist_dir
         .join("i18n")
@@ -247,7 +273,11 @@ fn patch_language_whitelist(installation: &ClaudeInstallation) -> Result<(), Pat
         .flatten()
     {
         let path = entry.path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         if !name.starts_with("index-") || !name.ends_with(".js") {
             continue;
@@ -298,7 +328,8 @@ fn set_config_locale() -> Result<(), PatchError> {
         .ok_or_else(|| PatchError::Config("配置文件格式错误".into()))?
         .insert("locale".into(), serde_json::json!("zh-CN"));
 
-    let out = serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
+    let out =
+        serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
     fs::write(&path, out).map_err(|e| PatchError::Config(e.to_string()))?;
 
     Ok(())
@@ -318,7 +349,8 @@ fn remove_config_locale() -> Result<(), PatchError> {
         obj.remove("locale");
     }
 
-    let out = serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
+    let out =
+        serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
     fs::write(&path, out).map_err(|e| PatchError::Config(e.to_string()))?;
 
     Ok(())

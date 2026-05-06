@@ -53,11 +53,11 @@ pub fn create_backup(installation: &ClaudeInstallation) -> Result<(), BackupErro
         {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with("index-") && name.ends_with(".js") {
-                let content = fs::read_to_string(entry.path()).unwrap_or_default();
-                if content.contains("\"zh-CN\"") {
+                let dest = backup_assets.join(&name);
+                if dest.exists() {
                     continue;
                 }
-                fs::copy(entry.path(), backup_assets.join(&name))
+                fs::copy(entry.path(), &dest)
                     .map_err(|e| BackupError(format!("备份 {} 失败: {}", name, e)))?;
             }
         }
