@@ -174,18 +174,40 @@ fn take_ownership(installation: &ClaudeInstallation) -> Result<(), PatchError> {
 }
 
 fn kill_claude() {
-    let result = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Stop-Process -Force",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    logger::log(&format!("kill_claude powershell result: {:?}", result));
+    let our_pid = std::process::id();
+    logger::log(&format!("kill_claude: our PID={}", our_pid));
+
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq Claude.exe", "/FO", "CSV", "/NH"])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        logger::log(&format!("tasklist output: {}", stdout.trim()));
+
+        for line in stdout.lines() {
+            if let Some(pid_str) = line.split(',').nth(1) {
+                let pid = pid_str.trim_matches('"').trim();
+                if let Ok(pid_num) = pid.parse::<u32>() {
+                    if pid_num == our_pid {
+                        logger::log(&format!("skipping our own PID {}", pid_num));
+                        continue;
+                    }
+                    logger::log(&format!("killing PID {}", pid_num));
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", pid])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+        }
+    } else {
+        logger::log("tasklist command failed");
+    }
+
     std::thread::sleep(std::time::Duration::from_secs(2));
-    logger::log("kill_claude sleep done, process should be dead");
+    logger::log("kill_claude done");
 }
 
 fn start_claude() {
