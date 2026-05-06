@@ -129,15 +129,8 @@ fn take_ownership(resources_dir: &Path) -> Result<(), PatchError> {
 }
 
 fn kill_claude() {
-    let our_pid = std::process::id();
-    let _ = std::process::Command::new("cmd")
-        .args([
-            "/C",
-            &format!(
-                "wmic process where \"name='Claude.exe' AND processid!='{}'\" call terminate >nul 2>&1",
-                our_pid
-            ),
-        ])
+    let _ = std::process::Command::new("powershell")
+        .args(["-Command", "Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Stop-Process -Force"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
