@@ -13,6 +13,13 @@
 - 系统通知反馈操作结果
 - 菜单栏常驻，不占用 Dock 栏
 
+## 翻译覆盖率
+
+- 前端 UI 翻译：13,800+ 条（完整覆盖 en-US 全部 key）
+- 桌面菜单翻译：355 条
+- 功能特性描述翻译：46 条
+- 覆盖 Cowork、Connectors、Claude Code、隐私设置等全部新功能
+
 ## 安装
 
 ### 方式一：DMG 安装（推荐）
@@ -54,7 +61,7 @@ open ClaudeCN.xcodeproj
 ClaudeCN 通过以下方式实现汉化：
 
 1. 备份原版 Claude.app（首次汉化时创建 zip 备份）
-2. 将中文翻译文件注入 Claude.app 的 i18n 目录
+2. 将中文翻译文件注入 Claude.app 的 i18n 目录（与 en-US.json 合并，确保未翻译的 key 回退为英文）
 3. 在语言白名单中添加 `zh-CN`
 4. 设置 Claude Desktop 的语言偏好为中文
 5. 重新签名应用，保留原有权限
@@ -71,6 +78,26 @@ ClaudeCN 通过以下方式实现汉化：
 
 - macOS 13.0 (Ventura) 或更高版本
 - Claude Desktop 已安装
+
+## 更新日志
+
+### v1.2.0
+
+- 新增 1,500 条翻译，完整覆盖最新版 Claude Desktop 全部 i18n key
+- 覆盖 Cowork（协作工作）、Connectors（连接器）、Plugins（插件市场）等新功能
+- 覆盖 Claude Code 相关 UI、隐私/安全设置页面、计费/订阅页面
+- 翻译文件与 en-US.json 合并，新增 key 自动回退英文
+
+### v1.1.0
+
+- 新增状态栏实时进度反馈（旋转动画 + 进度文字）
+- 修复 NSPopover 焦点问题
+- 安全性改进
+
+### v1.0.0
+
+- 初始版本
+- 一键汉化/恢复 Claude Desktop
 
 ## 声明
 
