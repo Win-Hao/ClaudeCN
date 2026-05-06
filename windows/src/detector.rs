@@ -18,17 +18,28 @@ pub enum PatchStatus {
 }
 
 pub fn find_claude() -> Option<ClaudeInstallation> {
+    if let Some(inst) = find_claude_msix() {
+        return Some(inst);
+    }
+    if let Some(inst) = find_claude_exe() {
+        return Some(inst);
+    }
+    crate::logger::log("find_claude: no valid Claude installation found");
+    None
+}
+
+fn find_claude_msix() -> Option<ClaudeInstallation> {
     let base = PathBuf::from(r"C:\Program Files\WindowsApps");
 
     if !base.exists() {
-        crate::logger::log("find_claude: WindowsApps directory does not exist");
+        crate::logger::log("find_msix: WindowsApps directory does not exist");
         return None;
     }
 
     let read_dir = match fs::read_dir(&base) {
         Ok(rd) => rd,
         Err(e) => {
-            crate::logger::log(&format!("find_claude: cannot read WindowsApps: {}", e));
+            crate::logger::log(&format!("find_msix: cannot read WindowsApps: {}", e));
             return None;
         }
     };
@@ -41,7 +52,7 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
         })
         .collect();
 
-    crate::logger::log(&format!("find_claude: found {} Claude candidates", candidates.len()));
+    crate::logger::log(&format!("find_msix: found {} candidates", candidates.len()));
 
     candidates.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
 
@@ -50,7 +61,7 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
         let resources_dir = app_dir.join("resources");
         let en_us = resources_dir.join("en-US.json");
 
-        crate::logger::log(&format!("find_claude: checking {}", entry.path().display()));
+        crate::logger::log(&format!("find_msix: checking {}", entry.path().display()));
 
         if en_us.exists() {
             let ion_dist_dir = resources_dir.join("ion-dist");
@@ -61,7 +72,7 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
                 .unwrap_or("unknown")
                 .to_string();
 
-            crate::logger::log(&format!("find_claude: detected v{}", version));
+            crate::logger::log(&format!("find_msix: detected v{}", version));
 
             return Some(ClaudeInstallation {
                 app_dir,
@@ -73,7 +84,66 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
         }
     }
 
-    crate::logger::log("find_claude: no valid Claude installation found");
+    None
+}
+
+fn find_claude_exe() -> Option<ClaudeInstallation> {
+    let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
+    let base = PathBuf::from(&local_app_data).join("AnthropicClaude");
+
+    if !base.exists() {
+        crate::logger::log(&format!("find_exe: {} does not exist", base.display()));
+        return None;
+    }
+
+    let read_dir = match fs::read_dir(&base) {
+        Ok(rd) => rd,
+        Err(e) => {
+            crate::logger::log(&format!("find_exe: cannot read {}: {}", base.display(), e));
+            return None;
+        }
+    };
+
+    let mut candidates: Vec<_> = read_dir
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("app-")
+        })
+        .collect();
+
+    crate::logger::log(&format!("find_exe: found {} app- candidates", candidates.len()));
+
+    candidates.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+    for entry in candidates {
+        let app_dir = entry.path();
+        let resources_dir = app_dir.join("resources");
+        let en_us = resources_dir.join("en-US.json");
+
+        crate::logger::log(&format!("find_exe: checking {}", app_dir.display()));
+
+        if en_us.exists() {
+            let ion_dist_dir = resources_dir.join("ion-dist");
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let version = dir_name
+                .strip_prefix("app-")
+                .unwrap_or("unknown")
+                .to_string();
+
+            crate::logger::log(&format!("find_exe: detected v{}", version));
+
+            return Some(ClaudeInstallation {
+                app_dir,
+                resources_dir,
+                ion_dist_dir,
+                version,
+                package_name: dir_name,
+            });
+        }
+    }
+
     None
 }
 

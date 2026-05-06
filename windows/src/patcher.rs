@@ -162,61 +162,56 @@ fn kill_claude() {
     let our_pid = std::process::id();
     logger::log(&format!("kill_claude: our PID={}", our_pid));
 
-    let our_exe = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-    logger::log(&format!("kill_claude: our exe={}", our_exe));
-
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "Get-Process | Where-Object {{ $_.Path -like '*\\WindowsApps\\Claude_*' }} | ForEach-Object {{ $_.Id }}"
-            ),
-        ])
-        .output();
-
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        logger::log(&format!("claude PIDs: {}", stdout.trim()));
-
-        for line in stdout.lines() {
-            let pid = line.trim();
-            if let Ok(pid_num) = pid.parse::<u32>() {
-                if pid_num == our_pid {
-                    continue;
-                }
-                logger::log(&format!("killing PID {}", pid_num));
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/PID", pid])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
-    } else {
-        logger::log("powershell command failed, trying taskkill fallback");
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/IM", "Claude.exe", "/FI", &format!("PID ne {}", our_pid)])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/IM", "Claude.exe"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 
     std::thread::sleep(std::time::Duration::from_secs(2));
     logger::log("kill_claude done");
 }
 
 fn start_claude() {
+    if let Some(exe) = find_claude_exe_path() {
+        logger::log(&format!("start_claude: launching {}", exe.display()));
+        let _ = std::process::Command::new(&exe)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        return;
+    }
+
     if let Some(family) = get_claude_package_family() {
         let uri = format!(r"shell:AppsFolder\{}!Claude", family);
+        logger::log(&format!("start_claude: launching MSIX via {}", uri));
         let _ = std::process::Command::new("cmd")
             .args(["/C", "start", "", &uri])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
+        return;
     }
+
+    logger::log("start_claude: could not find Claude to launch");
+}
+
+fn find_claude_exe_path() -> Option<std::path::PathBuf> {
+    let local = std::env::var("LOCALAPPDATA").ok()?;
+    let exe = std::path::PathBuf::from(&local)
+        .join("AnthropicClaude")
+        .join("Claude.exe");
+    if exe.exists() {
+        return Some(exe);
+    }
+    let exe2 = std::path::PathBuf::from(&local)
+        .join("Programs")
+        .join("claude-desktop")
+        .join("Claude.exe");
+    if exe2.exists() {
+        return Some(exe2);
+    }
+    None
 }
 
 fn get_claude_package_family() -> Option<String> {
