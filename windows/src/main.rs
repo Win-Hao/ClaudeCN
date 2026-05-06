@@ -86,6 +86,7 @@ struct App {
     is_processing: Arc<Mutex<bool>>,
     needs_refresh: Arc<Mutex<bool>>,
     is_admin: bool,
+    show_disclaimer: bool,
 }
 
 impl App {
@@ -107,6 +108,9 @@ impl App {
             "请右键以管理员身份运行本程序".to_string()
         };
 
+        let disclaimer_path = std::env::temp_dir().join("claudecn_disclaimer_accepted");
+        let show_disclaimer = !disclaimer_path.exists();
+
         Self {
             status,
             installation,
@@ -114,6 +118,7 @@ impl App {
             is_processing: Arc::new(Mutex::new(false)),
             needs_refresh: Arc::new(Mutex::new(false)),
             is_admin,
+            show_disclaimer,
         }
     }
 
@@ -178,6 +183,36 @@ impl eframe::App for App {
         if get_mutex(&self.needs_refresh).unwrap_or(false) {
             self.refresh_status();
             set_mutex(&self.needs_refresh, false);
+        }
+
+        if self.show_disclaimer {
+            egui::Window::new("免费声明")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.add_space(8.0);
+                    ui.label("本软件由「抖音Winhao学AI」（抖音号：54927876676）开发，完全免费。");
+                    ui.add_space(8.0);
+                    ui.label("严禁任何形式的商业使用，包括但不限于：");
+                    ui.label("  • 出售本软件或其修改版本");
+                    ui.label("  • 将本软件作为付费服务的一部分");
+                    ui.label("  • 利用本软件进行任何商业盈利活动");
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new("如果你是付费获得本软件的，说明你被骗了！请立即举报卖家。")
+                            .color(egui::Color32::from_rgb(220, 80, 80)),
+                    );
+                    ui.add_space(12.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("我知道了，免费使用").clicked() {
+                            self.show_disclaimer = false;
+                            let path = std::env::temp_dir().join("claudecn_disclaimer_accepted");
+                            let _ = std::fs::write(&path, "accepted");
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -322,6 +357,23 @@ impl eframe::App for App {
                 ui.label(&msg);
             });
 
+            ui.add_space(4.0);
+
+            ui.separator();
+            ui.add_space(4.0);
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("作者：抖音Winhao学AI（抖音号：54927876676）").size(11.0));
+                ui.label(
+                    egui::RichText::new("本软件完全免费，不可商业化")
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(230, 180, 50)),
+                );
+                ui.label(
+                    egui::RichText::new("付费获取即被骗，请举报")
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(220, 80, 80)),
+                );
+            });
             ui.add_space(4.0);
 
             let lines = logger::recent_lines();
