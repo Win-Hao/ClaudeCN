@@ -74,7 +74,7 @@ open ClaudeCN.xcodeproj
 
 ### 安装
 
-1. 从 [Releases](../../releases) 页面下载 `Claude汉化助手.exe`
+1. 从 [Releases](../../releases) 页面下载 `ClaudeCN-Windows.exe`
 2. **右键 → 以管理员身份运行**（必须，Claude 安装在受保护目录）
 3. 程序会自动检测 Claude Desktop 的安装状态
 4. 点击「一键汉化」即可
