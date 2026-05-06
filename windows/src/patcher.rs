@@ -122,38 +122,23 @@ pub fn remove_patch(
     Ok(())
 }
 
-fn grant_access(path: &str) {
+fn grant_dir(path: &str) {
+    let _ = std::process::Command::new("takeown")
+        .args(["/F", path, "/R", "/A", "/D", "Y"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
     let _ = std::process::Command::new("icacls")
-        .args([path, "/grant", "Administrators:F", "/Q"])
+        .args([path, "/grant", "Administrators:F", "/T", "/Q"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
 }
 
 fn take_ownership(installation: &ClaudeInstallation) -> Result<(), PatchError> {
-    let targets = [
-        installation.resources_dir.join("zh-CN.json"),
-        installation.resources_dir.join("en-US.json"),
-        installation.ion_dist_dir.join("i18n"),
-        installation.ion_dist_dir.join("i18n").join("statsig"),
-    ];
-
-    for target in &targets {
-        let path = target.to_string_lossy().to_string();
-        grant_access(&path);
-    }
-
-    let assets_dir = installation.ion_dist_dir.join("assets").join("v1");
-    if assets_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&assets_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("index-") && name.ends_with(".js") {
-                    grant_access(&entry.path().to_string_lossy());
-                }
-            }
-        }
-    }
+    let res = installation.resources_dir.to_string_lossy().to_string();
+    logger::log(&format!("takeown on: {}", res));
+    grant_dir(&res);
 
     let test_file = installation.resources_dir.join(".claude_cn_test");
     logger::log(&format!("write test: {}", test_file.display()));
@@ -177,33 +162,46 @@ fn kill_claude() {
     let our_pid = std::process::id();
     logger::log(&format!("kill_claude: our PID={}", our_pid));
 
-    let output = std::process::Command::new("tasklist")
-        .args(["/FI", "IMAGENAME eq Claude.exe", "/FO", "CSV", "/NH"])
+    let our_exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    logger::log(&format!("kill_claude: our exe={}", our_exe));
+
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Get-Process | Where-Object {{ $_.Path -like '*\\WindowsApps\\Claude_*' }} | ForEach-Object {{ $_.Id }}"
+            ),
+        ])
         .output();
 
     if let Ok(output) = output {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        logger::log(&format!("tasklist output: {}", stdout.trim()));
+        logger::log(&format!("claude PIDs: {}", stdout.trim()));
 
         for line in stdout.lines() {
-            if let Some(pid_str) = line.split(',').nth(1) {
-                let pid = pid_str.trim_matches('"').trim();
-                if let Ok(pid_num) = pid.parse::<u32>() {
-                    if pid_num == our_pid {
-                        logger::log(&format!("skipping our own PID {}", pid_num));
-                        continue;
-                    }
-                    logger::log(&format!("killing PID {}", pid_num));
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/PID", pid])
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status();
+            let pid = line.trim();
+            if let Ok(pid_num) = pid.parse::<u32>() {
+                if pid_num == our_pid {
+                    continue;
                 }
+                logger::log(&format!("killing PID {}", pid_num));
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/PID", pid])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
             }
         }
     } else {
-        logger::log("tasklist command failed");
+        logger::log("powershell command failed, trying taskkill fallback");
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", "Claude.exe", "/FI", &format!("PID ne {}", our_pid)])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 
     std::thread::sleep(std::time::Duration::from_secs(2));
