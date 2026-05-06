@@ -92,9 +92,11 @@ struct App {
 impl App {
     fn new() -> Self {
         let is_admin = check_admin();
+        logger::log(&format!("is_admin: {}", is_admin));
         let installation = if is_admin {
             detector::find_claude()
         } else {
+            logger::log("skipping detection: not running as admin");
             None
         };
         let status = match &installation {

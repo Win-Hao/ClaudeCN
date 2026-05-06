@@ -21,11 +21,19 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
     let base = PathBuf::from(r"C:\Program Files\WindowsApps");
 
     if !base.exists() {
+        crate::logger::log("find_claude: WindowsApps directory does not exist");
         return None;
     }
 
-    let mut candidates: Vec<_> = fs::read_dir(&base)
-        .ok()?
+    let read_dir = match fs::read_dir(&base) {
+        Ok(rd) => rd,
+        Err(e) => {
+            crate::logger::log(&format!("find_claude: cannot read WindowsApps: {}", e));
+            return None;
+        }
+    };
+
+    let mut candidates: Vec<_> = read_dir
         .filter_map(|e| e.ok())
         .filter(|e| {
             let name = e.file_name().to_string_lossy().to_string();
@@ -33,12 +41,16 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
         })
         .collect();
 
+    crate::logger::log(&format!("find_claude: found {} Claude candidates", candidates.len()));
+
     candidates.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
 
     for entry in candidates {
         let app_dir = entry.path().join("app");
         let resources_dir = app_dir.join("resources");
         let en_us = resources_dir.join("en-US.json");
+
+        crate::logger::log(&format!("find_claude: checking {}", entry.path().display()));
 
         if en_us.exists() {
             let ion_dist_dir = resources_dir.join("ion-dist");
@@ -48,6 +60,8 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
                 .nth(1)
                 .unwrap_or("unknown")
                 .to_string();
+
+            crate::logger::log(&format!("find_claude: detected v{}", version));
 
             return Some(ClaudeInstallation {
                 app_dir,
@@ -59,6 +73,7 @@ pub fn find_claude() -> Option<ClaudeInstallation> {
         }
     }
 
+    crate::logger::log("find_claude: no valid Claude installation found");
     None
 }
 
