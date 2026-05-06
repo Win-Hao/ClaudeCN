@@ -10,6 +10,15 @@ use std::thread;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = format!("PANIC: {}\n{:?}", info, std::backtrace::Backtrace::capture());
+        if let Ok(dir) = std::env::var("LOCALAPPDATA") {
+            let log_dir = std::path::PathBuf::from(dir).join("ClaudeCN");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let _ = std::fs::write(log_dir.join("crash.log"), &msg);
+        }
+    }));
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([420.0, 340.0])
