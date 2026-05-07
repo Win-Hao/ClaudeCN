@@ -407,11 +407,16 @@ impl eframe::App for App {
 
                     let can_patch = self.is_admin
                         && self.installation.is_some()
-                        && self.status != detector::PatchStatus::Patched
                         && !is_busy;
 
+                    let patch_label = if self.status == detector::PatchStatus::Patched {
+                        "重新汉化"
+                    } else {
+                        "一键汉化"
+                    };
+
                     if ui
-                        .add_enabled(can_patch, egui::Button::new("一键汉化").min_size(btn_size))
+                        .add_enabled(can_patch, egui::Button::new(patch_label).min_size(btn_size))
                         .clicked()
                     {
                         if let Some(inst) = &self.installation {
@@ -496,14 +501,20 @@ impl eframe::App for App {
 
             let lines = logger::recent_lines();
             if !lines.is_empty() {
-                ui.collapsing("运行日志（点击展开，可复制）", |ui| {
-                    let mut log_text = lines.join("\n");
+                ui.collapsing("运行日志（点击展开）", |ui| {
+                    let log_text = lines.join("\n");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                        if ui.small_button("复制日志").clicked() {
+                            ui.ctx().copy_text(log_text.clone());
+                        }
+                    });
+                    let mut log_display = log_text;
                     egui::ScrollArea::vertical()
                         .max_height(120.0)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
                             ui.add(
-                                egui::TextEdit::multiline(&mut log_text)
+                                egui::TextEdit::multiline(&mut log_display)
                                     .font(egui::TextStyle::Monospace)
                                     .desired_width(f32::INFINITY),
                             );

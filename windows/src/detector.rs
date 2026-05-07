@@ -295,18 +295,28 @@ fn reg_query_silent(root: &str, field: &str) -> Result<std::process::Output, std
 
 pub fn check_patch_status(installation: &ClaudeInstallation) -> PatchStatus {
     let i18n_zh = installation.ion_dist_dir.join("i18n").join("zh-CN.json");
-    if !i18n_zh.exists() {
+    let i18n_exists = i18n_zh.exists();
+    crate::logger::log(&format!("patch_status: i18n/zh-CN.json exists={}", i18n_exists));
+    if !i18n_exists {
+        crate::logger::log("patch_status: -> Unpatched (no i18n file)");
         return PatchStatus::Unpatched;
     }
 
-    if !is_whitelist_patched(installation) {
+    let wl = is_whitelist_patched(installation);
+    crate::logger::log(&format!("patch_status: whitelist_patched={}", wl));
+    if !wl {
+        crate::logger::log("patch_status: -> Unpatched (whitelist not patched)");
         return PatchStatus::Unpatched;
     }
 
-    if has_locale_config() {
+    let locale = has_locale_config();
+    crate::logger::log(&format!("patch_status: has_locale_config={}", locale));
+    if locale {
+        crate::logger::log("patch_status: -> Patched");
         return PatchStatus::Patched;
     }
 
+    crate::logger::log("patch_status: -> Unpatched (no locale config)");
     PatchStatus::Unpatched
 }
 
