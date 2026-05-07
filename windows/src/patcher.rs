@@ -162,11 +162,30 @@ fn kill_claude() {
     let our_pid = std::process::id();
     logger::log(&format!("kill_claude: our PID={}", our_pid));
 
-    let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/IM", "Claude.exe"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq Claude.exe", "/FO", "CSV", "/NH"])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() >= 2 {
+                let pid = parts[1].trim_matches('"').trim();
+                if let Ok(pid_num) = pid.parse::<u32>() {
+                    if pid_num == our_pid {
+                        continue;
+                    }
+                    logger::log(&format!("killing Claude.exe PID {}", pid_num));
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid_num.to_string()])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+        }
+    }
 
     std::thread::sleep(std::time::Duration::from_secs(2));
     logger::log("kill_claude done");

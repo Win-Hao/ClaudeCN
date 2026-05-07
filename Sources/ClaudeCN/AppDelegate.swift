@@ -20,6 +20,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         "circle.righthalf.filled",
     ]
 
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let bundleID = Bundle.main.bundleIdentifier ?? ""
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)

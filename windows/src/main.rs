@@ -17,6 +17,10 @@ fn main() -> eframe::Result<()> {
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("PANIC: {}\n{:?}", info, std::backtrace::Backtrace::capture());
         logger::log(&msg);
+        // Show message box so user sees the error instead of silent crash
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "msg", "*", &format!("ClaudeCN 遇到错误，请将日志发给开发者：\n{}", info)])
+            .status();
     }));
 
     let options = eframe::NativeOptions {
