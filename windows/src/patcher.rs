@@ -8,6 +8,12 @@ use crate::backup;
 use crate::detector::{config_path, ClaudeInstallation};
 use crate::logger;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const FRONTEND_ZH_CN: &str = include_str!("../resources/zh-CN.json");
 const DESKTOP_ZH_CN: &str = include_str!("../resources/desktop-zh-CN.json");
 const STATSIG_ZH_CN: &str = include_str!("../resources/statsig-zh-CN.json");
@@ -57,8 +63,20 @@ pub fn apply_patch(
 
     on_progress("正在写入翻译文件...");
     logger::log("step: write_translation_files");
+    logger::log(&format!("  ion_dist_dir={}", installation.ion_dist_dir.display()));
+    logger::log(&format!("  ion_dist exists={}", installation.ion_dist_dir.exists()));
+    logger::log(&format!("  i18n dir exists={}", installation.ion_dist_dir.join("i18n").exists()));
     write_translation_files(installation)?;
     logger::log("step: write_translation_files done");
+
+    let zh_cn_path = installation.ion_dist_dir.join("i18n").join("zh-CN.json");
+    let desktop_zh = installation.resources_dir.join("zh-CN.json");
+    logger::log(&format!("verify: i18n/zh-CN.json exists={} size={}",
+        zh_cn_path.exists(),
+        fs::metadata(&zh_cn_path).map(|m| m.len()).unwrap_or(0)));
+    logger::log(&format!("verify: resources/zh-CN.json exists={} size={}",
+        desktop_zh.exists(),
+        fs::metadata(&desktop_zh).map(|m| m.len()).unwrap_or(0)));
 
     on_progress("正在注入语言白名单...");
     logger::log("step: patch_language_whitelist");
@@ -68,6 +86,12 @@ pub fn apply_patch(
     on_progress("正在设置语言配置...");
     logger::log("step: set_config_locale");
     set_config_locale()?;
+    if let Some(cp) = config_path() {
+        logger::log(&format!("verify: config path={}", cp.display()));
+        if let Ok(content) = fs::read_to_string(&cp) {
+            logger::log(&format!("verify: config contains zh-CN={}", content.contains("zh-CN")));
+        }
+    }
     logger::log("step: set_config_locale done");
 
     on_progress("正在重启 Claude...");
@@ -122,13 +146,20 @@ pub fn remove_patch(
     Ok(())
 }
 
+fn hidden_cmd(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 fn grant_dir(path: &str) {
-    let _ = std::process::Command::new("takeown")
+    let _ = hidden_cmd("takeown")
         .args(["/F", path, "/R", "/A", "/D", "Y"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
-    let _ = std::process::Command::new("icacls")
+    let _ = hidden_cmd("icacls")
         .args([path, "/grant", "Administrators:F", "/T", "/Q"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -162,7 +193,7 @@ fn kill_claude() {
     let our_pid = std::process::id();
     logger::log(&format!("kill_claude: our PID={}", our_pid));
 
-    let output = std::process::Command::new("tasklist")
+    let output = hidden_cmd("tasklist")
         .args(["/FI", "IMAGENAME eq Claude.exe", "/FO", "CSV", "/NH"])
         .output();
 
@@ -177,7 +208,7 @@ fn kill_claude() {
                         continue;
                     }
                     logger::log(&format!("killing Claude.exe PID {}", pid_num));
-                    let _ = std::process::Command::new("taskkill")
+                    let _ = hidden_cmd("taskkill")
                         .args(["/F", "/PID", &pid_num.to_string()])
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
@@ -204,7 +235,7 @@ fn start_claude() {
     if let Some(family) = get_claude_package_family() {
         let uri = format!(r"shell:AppsFolder\{}!Claude", family);
         logger::log(&format!("start_claude: launching MSIX via {}", uri));
-        let _ = std::process::Command::new("cmd")
+        let _ = hidden_cmd("cmd")
             .args(["/C", "start", "", &uri])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -234,7 +265,7 @@ fn find_claude_exe_path() -> Option<std::path::PathBuf> {
 }
 
 fn get_claude_package_family() -> Option<String> {
-    let output = std::process::Command::new("powershell")
+    let output = hidden_cmd("powershell")
         .args([
             "-NoProfile",
             "-Command",
