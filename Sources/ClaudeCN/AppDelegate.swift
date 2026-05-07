@@ -135,7 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "免费声明"
         alert.informativeText = """
-        本软件由「抖音Winhao学AI」（抖音号：54927876676）开发，完全免费。
+        本软件由「Winhao学AI」（抖音号：54927876676）开发，完全免费。
 
         严禁任何形式的商业使用，包括但不限于：
         • 出售本软件或其修改版本

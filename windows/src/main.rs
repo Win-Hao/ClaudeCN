@@ -194,7 +194,7 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.add_space(8.0);
-                    ui.label("本软件由「抖音Winhao学AI」（抖音号：54927876676）开发，完全免费。");
+                    ui.label("本软件由「Winhao学AI」（抖音号：54927876676）开发，完全免费。");
                     ui.add_space(8.0);
                     ui.label("严禁任何形式的商业使用，包括但不限于：");
                     ui.label("  • 出售本软件或其修改版本");
@@ -364,7 +364,7 @@ impl eframe::App for App {
             ui.separator();
             ui.add_space(4.0);
             ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("作者：抖音Winhao学AI（抖音号：54927876676）").size(11.0));
+                ui.label(egui::RichText::new("作者：Winhao学AI（抖音号：54927876676）").size(11.0));
                 ui.label(
                     egui::RichText::new("本软件完全免费，不可商业化")
                         .size(11.0)

@@ -127,7 +127,7 @@ struct MenuBarView: View {
 
     private var watermarkSection: some View {
         VStack(spacing: 3) {
-            Text("作者：抖音Winhao学AI")
+            Text("作者：Winhao学AI")
                 .font(.caption2)
                 .fontWeight(.medium)
             Text("抖音号：54927876676")
