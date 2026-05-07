@@ -102,8 +102,8 @@ cargo build --release --target x86_64-pc-windows-gnu
 
 ### 系统要求
 
-- Windows 10/11（x64）
-- Claude Desktop 已安装（MSIX 版本）
+- Windows 10/11（x64 / ARM64）
+- Claude Desktop 已安装（MSIX 或 exe 安装版均支持）
 - 管理员权限
 
 ---
@@ -126,6 +126,17 @@ cargo build --release --target x86_64-pc-windows-gnu
 - 不收集任何用户数据
 
 ## 更新日志
+
+### v1.2.1
+
+- **修复"显示已汉化但实际未生效"的问题**（Windows + macOS）
+- Windows：修复 locale 配置写入错误路径的 bug（开发者模式 / 普通模式现在都能正确生效）
+- Windows：大幅扩展安装路径检测，支持 10+ 安装位置 + 注册表兜底查询
+- Windows：新增 ARM64 设备支持
+- macOS：修复白名单注入失败时不报错的问题
+- 两端语言白名单注入改用 3 套正则兜底，适配更多 Claude 版本
+- 汉化完成后新增验证步骤，不通过会明确报错
+- Claude 自动更新后状态检测会正确显示"未汉化"
 
 ### v1.2.0
 
