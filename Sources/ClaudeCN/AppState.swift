@@ -69,11 +69,16 @@ class AppState: ObservableObject {
             patcher.launchClaude()
             try await Task.sleep(nanoseconds: 2_000_000_000)
 
-            status = .patched
+            checkStatus()
             isProcessing = false
             progressMessage = ""
-            onStatusChange?()
-            sendNotification("汉化完成", "Claude Desktop 已切换为中文界面。")
+
+            if status == .patched {
+                sendNotification("汉化完成", "Claude Desktop 已切换为中文界面。")
+            } else {
+                onShowPanel?()
+                sendNotification("汉化异常", "补丁已应用但验证未通过，请尝试重新汉化。")
+            }
         } catch {
             isProcessing = false
             progressMessage = ""

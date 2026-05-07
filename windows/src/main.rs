@@ -226,7 +226,7 @@ impl eframe::App for App {
             ui.vertical_centered(|ui| {
                 ui.heading("Claude 桌面端汉化助手");
                 ui.label(
-                    egui::RichText::new("v1.2.0")
+                    egui::RichText::new("v1.2.1")
                         .size(12.0)
                         .color(egui::Color32::GRAY),
                 );

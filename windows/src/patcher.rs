@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::backup;
-use crate::detector::{config_path, ClaudeInstallation};
+use crate::detector::ClaudeInstallation;
 use crate::logger;
 
 #[cfg(target_os = "windows")]
@@ -86,13 +86,12 @@ pub fn apply_patch(
     on_progress("正在设置语言配置...");
     logger::log("step: set_config_locale");
     set_config_locale()?;
-    if let Some(cp) = config_path() {
-        logger::log(&format!("verify: config path={}", cp.display()));
-        if let Ok(content) = fs::read_to_string(&cp) {
-            logger::log(&format!("verify: config contains zh-CN={}", content.contains("zh-CN")));
-        }
-    }
     logger::log("step: set_config_locale done");
+
+    on_progress("正在验证汉化结果...");
+    logger::log("step: verify_patch");
+    verify_patch(installation)?;
+    logger::log("step: verify_patch done");
 
     on_progress("正在重启 Claude...");
     logger::log("step: start_claude");
@@ -248,18 +247,37 @@ fn start_claude() {
 
 fn find_claude_exe_path() -> Option<std::path::PathBuf> {
     let local = std::env::var("LOCALAPPDATA").ok()?;
-    let exe = std::path::PathBuf::from(&local)
-        .join("AnthropicClaude")
-        .join("Claude.exe");
-    if exe.exists() {
-        return Some(exe);
-    }
-    let exe2 = std::path::PathBuf::from(&local)
-        .join("Programs")
-        .join("claude-desktop")
-        .join("Claude.exe");
-    if exe2.exists() {
-        return Some(exe2);
+    let local_path = std::path::PathBuf::from(&local);
+
+    let search_dirs = vec![
+        local_path.join("AnthropicClaude"),
+        local_path.join("Programs").join("claude-desktop"),
+        local_path.join("Programs").join("Claude"),
+        local_path.join("Programs").join("Claude Desktop"),
+        local_path.join("Claude"),
+        local_path.join("claude-desktop"),
+        local_path.join("Anthropic").join("Claude"),
+        std::path::PathBuf::from(r"C:\Program Files\Claude"),
+        std::path::PathBuf::from(r"C:\Program Files\Claude Desktop"),
+        std::path::PathBuf::from(r"C:\Program Files\Anthropic\Claude"),
+    ];
+
+    for dir in &search_dirs {
+        let exe = dir.join("Claude.exe");
+        if exe.exists() {
+            return Some(exe);
+        }
+        // Also check versioned subdirs
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with("app-") {
+                    let exe = entry.path().join("Claude.exe");
+                    if exe.exists() {
+                        return Some(exe);
+                    }
+                }
+            }
+        }
     }
     None
 }
@@ -367,10 +385,15 @@ fn patch_language_whitelist(installation: &ClaudeInstallation) -> Result<(), Pat
         return Err(PatchError::Whitelist("assets/v1 目录不存在".into()));
     }
 
-    let re = Regex::new(r#"\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\]"#)
-        .map_err(|e| PatchError::Whitelist(e.to_string()))?;
+    let regexes = [
+        Regex::new(r#"\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\]"#),
+        Regex::new(r#"\["en-US"(?:\s*,\s*"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\s*\]"#),
+        Regex::new(r#"\[(?:"[a-z]{2}(?:-[A-Za-z0-9]{2,4})*"\s*,\s*)*"en-US"(?:\s*,\s*"[a-z]{2}(?:-[A-Za-z0-9]{2,4})*")*\s*\]"#),
+    ];
+    let regexes: Vec<Regex> = regexes.into_iter().filter_map(|r| r.ok()).collect();
 
     let mut patched = false;
+    let mut found_index_js = false;
 
     for entry in fs::read_dir(&assets_dir)
         .map_err(|e| PatchError::Whitelist(e.to_string()))?
@@ -387,26 +410,39 @@ fn patch_language_whitelist(installation: &ClaudeInstallation) -> Result<(), Pat
             continue;
         }
 
+        found_index_js = true;
+
         let content = fs::read_to_string(&path)
             .map_err(|e| PatchError::Whitelist(format!("读取 {} 失败: {}", name, e)))?;
 
         if content.contains("\"zh-CN\"") {
+            logger::log(&format!("whitelist: {} already contains zh-CN", name));
             patched = true;
             continue;
         }
 
-        if let Some(m) = re.find(&content) {
-            let original = m.as_str();
-            let injected = format!("{}{}]", &original[..original.len() - 1], ",\"zh-CN\"");
-            let new_content = content.replacen(original, &injected, 1);
-            write_with_retry(&path, &new_content)?;
-            patched = true;
+        for re in &regexes {
+            if let Some(m) = re.find(&content) {
+                let original = m.as_str();
+                let injected = format!("{}{}]", &original[..original.len() - 1], ",\"zh-CN\"");
+                let new_content = content.replacen(original, &injected, 1);
+                write_with_retry(&path, &new_content)?;
+                logger::log(&format!("whitelist: injected zh-CN into {} via regex", name));
+                patched = true;
+                break;
+            }
         }
+    }
+
+    if !found_index_js {
+        return Err(PatchError::Whitelist(
+            "assets/v1 目录中未找到 index-*.js 文件".into(),
+        ));
     }
 
     if !patched {
         return Err(PatchError::Whitelist(
-            "未找到 index-*.js 或语言列表".into(),
+            "未找到语言列表，可能 Claude 版本不兼容".into(),
         ));
     }
 
@@ -414,48 +450,122 @@ fn patch_language_whitelist(installation: &ClaudeInstallation) -> Result<(), Pat
 }
 
 fn set_config_locale() -> Result<(), PatchError> {
-    let path = config_path().ok_or_else(|| PatchError::Config("无法确定配置文件路径".into()))?;
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| PatchError::Config("无法获取 APPDATA".into()))?;
+    let base = Path::new(&appdata);
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| PatchError::Config(e.to_string()))?;
+    let mut wrote_any = false;
+    for dir_name in ["Claude", "Claude-3p"] {
+        let dir = base.join(dir_name);
+        let path = dir.join("config.json");
+
+        if fs::create_dir_all(&dir).is_err() {
+            logger::log(&format!("cannot create dir: {}", dir.display()));
+            continue;
+        }
+
+        let mut config: Value = if path.exists() {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        if let Some(obj) = config.as_object_mut() {
+            obj.insert("locale".into(), serde_json::json!("zh-CN"));
+        }
+
+        if let Ok(out) = serde_json::to_string_pretty(&config) {
+            match fs::write(&path, &out) {
+                Ok(()) => {
+                    logger::log(&format!("wrote locale to {}", path.display()));
+                    wrote_any = true;
+                }
+                Err(e) => {
+                    logger::log(&format!("failed to write {}: {}", path.display(), e));
+                }
+            }
+        }
     }
 
-    let mut config: Value = if path.exists() {
-        let s = fs::read_to_string(&path).map_err(|e| PatchError::Config(e.to_string()))?;
-        serde_json::from_str(&s).unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    config
-        .as_object_mut()
-        .ok_or_else(|| PatchError::Config("配置文件格式错误".into()))?
-        .insert("locale".into(), serde_json::json!("zh-CN"));
-
-    let out =
-        serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
-    fs::write(&path, out).map_err(|e| PatchError::Config(e.to_string()))?;
-
+    if !wrote_any {
+        return Err(PatchError::Config("无法写入任何配置文件".into()));
+    }
     Ok(())
 }
 
 fn remove_config_locale() -> Result<(), PatchError> {
-    let path = config_path().ok_or_else(|| PatchError::Config("无法确定配置文件路径".into()))?;
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| PatchError::Config("无法获取 APPDATA".into()))?;
+    let base = Path::new(&appdata);
 
-    if !path.exists() {
-        return Ok(());
+    for dir_name in ["Claude", "Claude-3p"] {
+        let path = base.join(dir_name).join("config.json");
+        if !path.exists() {
+            continue;
+        }
+        let Ok(s) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut config: Value = serde_json::from_str(&s).unwrap_or(serde_json::json!({}));
+        if let Some(obj) = config.as_object_mut() {
+            obj.remove("locale");
+        }
+        if let Ok(out) = serde_json::to_string_pretty(&config) {
+            let _ = fs::write(&path, out);
+        }
     }
 
-    let s = fs::read_to_string(&path).map_err(|e| PatchError::Config(e.to_string()))?;
-    let mut config: Value = serde_json::from_str(&s).unwrap_or(serde_json::json!({}));
+    Ok(())
+}
 
-    if let Some(obj) = config.as_object_mut() {
-        obj.remove("locale");
+fn verify_patch(installation: &ClaudeInstallation) -> Result<(), PatchError> {
+    let zh_cn = installation.ion_dist_dir.join("i18n").join("zh-CN.json");
+    if !zh_cn.exists() {
+        return Err(PatchError::Io(
+            "验证失败：翻译文件 zh-CN.json 未写入成功".into(),
+        ));
     }
 
-    let out =
-        serde_json::to_string_pretty(&config).map_err(|e| PatchError::Config(e.to_string()))?;
-    fs::write(&path, out).map_err(|e| PatchError::Config(e.to_string()))?;
+    let assets_dir = installation.ion_dist_dir.join("assets").join("v1");
+    let mut found_index = false;
+    if let Ok(entries) = fs::read_dir(&assets_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("index-") && name.ends_with(".js") {
+                found_index = true;
+                let content = fs::read_to_string(entry.path())
+                    .map_err(|e| PatchError::Whitelist(format!("无法读取 {}: {}", name, e)))?;
+                if !content.contains("\"zh-CN\"") {
+                    return Err(PatchError::Whitelist(
+                        format!("验证失败：{} 中未包含 zh-CN", name),
+                    ));
+                }
+            }
+        }
+    }
+    if !found_index {
+        return Err(PatchError::Whitelist(
+            "验证失败：未找到 index-*.js 文件".into(),
+        ));
+    }
 
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let base = Path::new(&appdata);
+    let config_ok = ["Claude", "Claude-3p"].iter().any(|dir| {
+        let path = base.join(dir).join("config.json");
+        fs::read_to_string(&path)
+            .map(|c| c.contains("\"zh-CN\""))
+            .unwrap_or(false)
+    });
+    if !config_ok {
+        return Err(PatchError::Config(
+            "验证失败：配置文件中未设置 zh-CN locale".into(),
+        ));
+    }
+
+    logger::log("verify_patch: all checks passed");
     Ok(())
 }

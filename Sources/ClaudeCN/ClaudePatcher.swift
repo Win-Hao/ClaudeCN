@@ -31,10 +31,26 @@ struct ClaudePatcher {
 
     func isPatched() -> Bool {
         guard let config = readConfigJSON(),
-              let locale = config["locale"] as? String else {
+              let locale = config["locale"] as? String,
+              locale == "zh-CN" else {
             return false
         }
-        return locale == "zh-CN"
+
+        let fm = FileManager.default
+        let i18nZh = Self.claudeAppPath + "/" + Self.frontendI18nRel + "/zh-CN.json"
+        guard fm.fileExists(atPath: i18nZh) else { return false }
+
+        let assetsDir = Self.claudeAppPath + "/" + Self.frontendAssetsRel
+        guard let files = try? fm.contentsOfDirectory(atPath: assetsDir) else { return false }
+        let indexFiles = files.filter { $0.hasPrefix("index-") && $0.hasSuffix(".js") }
+        guard !indexFiles.isEmpty else { return false }
+        for file in indexFiles {
+            guard let content = try? String(contentsOfFile: assetsDir + "/" + file, encoding: .utf8),
+                  content.contains("\"zh-CN\"") else {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Backup
@@ -169,22 +185,41 @@ struct ClaudePatcher {
             throw PatchError.languageFileNotFound("index-*.js")
         }
 
-        let pattern = #"(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*)\]"#
-        let regex = try NSRegularExpression(pattern: pattern)
+        let patterns = [
+            #"(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*)\]"#,
+            #"(\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+)\]"#,
+            #"(\["en-US"(?:\s*,\s*"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\s*)\]"#,
+        ]
+        let regexes = patterns.compactMap { try? NSRegularExpression(pattern: $0) }
+
+        var injected = false
 
         for file in files {
             let fullPath = assetsDir + "/" + file
             let text = try String(contentsOfFile: fullPath, encoding: .utf8)
 
-            if text.contains("\"zh-CN\"") { continue }
+            if text.contains("\"zh-CN\"") {
+                injected = true
+                continue
+            }
 
             let range = NSRange(text.startIndex..., in: text)
-            let patched = regex.stringByReplacingMatches(in: text, range: range, withTemplate: #"$1,"zh-CN"]"#)
 
-            if patched != text {
-                try patched.write(toFile: fullPath, atomically: true, encoding: .utf8)
-                return
+            for regex in regexes {
+                let result = regex.stringByReplacingMatches(
+                    in: text, range: range, withTemplate: #"$1,"zh-CN"]"#)
+                if result != text {
+                    try result.write(toFile: fullPath, atomically: true, encoding: .utf8)
+                    injected = true
+                    break
+                }
             }
+
+            if injected { break }
+        }
+
+        if !injected {
+            throw PatchError.languageFileNotFound("语言白名单")
         }
     }
 
