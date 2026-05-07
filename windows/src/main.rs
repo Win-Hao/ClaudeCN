@@ -10,17 +10,88 @@ use std::thread;
 
 use eframe::egui;
 
+fn show_error_dialog(title: &str, message: &str) {
+    extern "system" {
+        fn MessageBoxW(hwnd: usize, text: *const u16, caption: *const u16, utype: u32) -> i32;
+    }
+    let title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let msg: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        MessageBoxW(0, msg.as_ptr(), title.as_ptr(), 0x10);
+    }
+}
+
+fn get_recent_log() -> String {
+    let lines = logger::recent_lines();
+    if lines.is_empty() {
+        return "（无日志）".to_string();
+    }
+    let start = lines.len().saturating_sub(20);
+    lines[start..].join("\n")
+}
+
+fn read_log_from_disk() -> String {
+    let content = (|| -> Option<String> {
+        let dir = std::env::var("LOCALAPPDATA").ok()?;
+        let path = std::path::PathBuf::from(&dir).join("ClaudeCN").join("debug.log");
+        std::fs::read_to_string(&path).ok()
+    })();
+    match content {
+        Some(c) => {
+            let lines: Vec<&str> = c.lines().collect();
+            let start = lines.len().saturating_sub(20);
+            lines[start..].join("\n")
+        }
+        None => "（无法读取日志）".to_string(),
+    }
+}
+
+fn install_crash_handler() {
+    extern "system" {
+        fn SetUnhandledExceptionFilter(
+            filter: Option<unsafe extern "system" fn(*const u8) -> i32>,
+        ) -> usize;
+    }
+
+    unsafe extern "system" fn crash_handler(_: *const u8) -> i32 {
+        let log_content = read_log_from_disk();
+        show_error_dialog(
+            "ClaudeCN 崩溃",
+            &format!(
+                "程序发生严重崩溃（可能是显卡驱动不兼容）\n\n\
+                 请截图此对话框反馈给开发者（抖音：54927876676）\n\n\
+                 === 运行日志 ===\n{}",
+                log_content
+            ),
+        );
+        1
+    }
+
+    unsafe {
+        SetUnhandledExceptionFilter(Some(crash_handler));
+    }
+}
+
 fn main() -> eframe::Result<()> {
+    install_crash_handler();
     logger::init();
     logger::log("Application starting");
+    std::env::set_var("RUST_BACKTRACE", "1");
 
     std::panic::set_hook(Box::new(|info| {
-        let msg = format!("PANIC: {}\n{:?}", info, std::backtrace::Backtrace::capture());
-        logger::log(&msg);
-        // Show message box so user sees the error instead of silent crash
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "msg", "*", &format!("ClaudeCN 遇到错误，请将日志发给开发者：\n{}", info)])
-            .status();
+        let backtrace = std::backtrace::Backtrace::capture();
+        let log_msg = format!("PANIC: {}\n{:?}", info, backtrace);
+        logger::log(&log_msg);
+        let log_content = get_recent_log();
+        show_error_dialog(
+            "ClaudeCN 错误",
+            &format!(
+                "程序遇到内部错误，请截图此对话框反馈给开发者（抖音：54927876676）\n\n\
+                 错误信息：{}\n\n\
+                 === 运行日志 ===\n{}",
+                info, log_content
+            ),
+        );
     }));
 
     let options = eframe::NativeOptions {
@@ -30,14 +101,32 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    let result = eframe::run_native(
         "Claude 汉化助手",
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
             Ok(Box::new(App::new()))
         }),
-    )
+    );
+
+    if let Err(ref e) = result {
+        logger::log(&format!("eframe::run_native failed: {}", e));
+        let log_content = get_recent_log();
+        let msg = format!(
+            "界面启动失败，可能是显卡驱动不兼容。\n\n\
+             错误信息：{}\n\n\
+             建议：\n\
+             1. 更新显卡驱动\n\
+             2. 尝试在非远程桌面环境下运行\n\n\
+             请截图此对话框反馈给开发者（抖音：54927876676）\n\n\
+             === 运行日志 ===\n{}",
+            e, log_content
+        );
+        show_error_dialog("ClaudeCN 启动失败", &msg);
+    }
+
+    result
 }
 
 fn setup_fonts(ctx: &egui::Context) {
@@ -129,6 +218,9 @@ impl App {
     }
 
     fn refresh_status(&mut self) {
+        if !self.is_admin {
+            return;
+        }
         self.installation = detector::find_claude();
         self.status = match &self.installation {
             Some(inst) => detector::check_patch_status(inst),
@@ -158,8 +250,28 @@ impl App {
 
             match result {
                 Ok(Ok(())) => set_mutex(&msg, success_msg.into()),
-                Ok(Err(e)) => set_mutex(&msg, format!("{}: {}", fail_prefix, e)),
-                Err(_) => set_mutex(&msg, format!("{}：发生内部错误", fail_prefix)),
+                Ok(Err(e)) => {
+                    let err_msg = format!("{}: {}", fail_prefix, e);
+                    logger::log(&format!("task error: {}", err_msg));
+                    set_mutex(&msg, err_msg.clone());
+                    let log_content = get_recent_log();
+                    show_error_dialog("ClaudeCN 错误", &format!(
+                        "{}\n\n请截图此对话框反馈给开发者（抖音：54927876676）\n\n\
+                         === 运行日志 ===\n{}",
+                        err_msg, log_content
+                    ));
+                }
+                Err(panic_info) => {
+                    let err_msg = format!("{}：发生内部错误", fail_prefix);
+                    logger::log(&format!("task panic: {:?}", panic_info));
+                    set_mutex(&msg, err_msg.clone());
+                    let log_content = get_recent_log();
+                    show_error_dialog("ClaudeCN 错误", &format!(
+                        "{}\n\n请截图此对话框反馈给开发者（抖音：54927876676）\n\n\
+                         === 运行日志 ===\n{}",
+                        err_msg, log_content
+                    ));
+                }
             }
 
             set_mutex(&busy, false);
@@ -226,7 +338,7 @@ impl eframe::App for App {
             ui.vertical_centered(|ui| {
                 ui.heading("Claude 桌面端汉化助手");
                 ui.label(
-                    egui::RichText::new("v1.2.1")
+                    egui::RichText::new("v1.2.2")
                         .size(12.0)
                         .color(egui::Color32::GRAY),
                 );

@@ -127,6 +127,13 @@ cargo build --release --target x86_64-pc-windows-gnu
 
 ## 更新日志
 
+### v1.2.2
+
+- Windows：闪退时弹出错误对话框（含运行日志），方便用户截图反馈
+- Windows：修复非管理员点击"刷新状态"绕过权限检查的 bug
+- Windows：用 Win32 MessageBoxW 替代 `msg *`，修复家庭版 Windows 闪退无提示的问题
+- Windows：新增 SEH 崩溃捕获，显卡驱动不兼容等严重错误也能弹窗提示
+
 ### v1.2.1
 
 - **修复"显示已汉化但实际未生效"的问题**（Windows + macOS）

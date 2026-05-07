@@ -15,7 +15,7 @@ pub fn init() {
         let _ = fs::write(
             &path,
             format!(
-                "=== ClaudeCN v1.2.1 started at {:?} ===\n",
+                "=== ClaudeCN v1.2.2 started at {:?} ===\n",
                 std::time::SystemTime::now()
             ),
         );
