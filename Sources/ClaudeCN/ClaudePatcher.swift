@@ -326,86 +326,142 @@ struct ClaudePatcher {
         }
     }
 
-    // MARK: - Step 5: Resign
+    // MARK: - Step 5: Update ElectronTeamID + Resign
+
+    private static let certName = "ClaudeCN Signing"
+
+    private func ensureSigningCertificate() -> Bool {
+        let check = Process()
+        check.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        check.arguments = ["find-identity", "-v", "-p", "codesigning"]
+        let pipe = Pipe()
+        check.standardOutput = pipe
+        check.standardError = Pipe()
+        try? check.run()
+        check.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if output.contains("\"\(Self.certName)\"") { return true }
+
+        let tmpDir = NSTemporaryDirectory() + "claudecn-cert-" + UUID().uuidString
+        try? FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
+        let keyPath = tmpDir + "/key.pem"
+        let certPath = tmpDir + "/cert.pem"
+        let p12Path = tmpDir + "/cert.p12"
+        let cfgPath = tmpDir + "/cert.cfg"
+
+        let cfg = """
+        [req]
+        default_bits = 2048
+        prompt = no
+        distinguished_name = dn
+        x509_extensions = v3
+
+        [dn]
+        CN = \(Self.certName)
+
+        [v3]
+        keyUsage = critical, digitalSignature
+        extendedKeyUsage = codeSigning
+        basicConstraints = CA:false
+        """
+        try? cfg.write(toFile: cfgPath, atomically: true, encoding: .utf8)
+
+        let gen = Process()
+        gen.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        gen.arguments = ["req", "-x509", "-newkey", "rsa:2048", "-keyout", keyPath,
+                         "-out", certPath, "-days", "3650", "-nodes", "-config", cfgPath]
+        gen.standardOutput = Pipe()
+        gen.standardError = Pipe()
+        try? gen.run()
+        gen.waitUntilExit()
+        guard gen.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(atPath: tmpDir)
+            return false
+        }
+
+        let export = Process()
+        export.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        export.arguments = ["pkcs12", "-export", "-out", p12Path, "-inkey", keyPath,
+                            "-in", certPath, "-passout", "pass:claudecn",
+                            "-certpbe", "PBE-SHA1-3DES", "-keypbe", "PBE-SHA1-3DES", "-macalg", "sha1"]
+        export.standardOutput = Pipe()
+        export.standardError = Pipe()
+        try? export.run()
+        export.waitUntilExit()
+
+        let imp = Process()
+        imp.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        imp.arguments = ["import", p12Path, "-k",
+                         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Keychains/login.keychain-db").path,
+                         "-P", "claudecn", "-T", "/usr/bin/codesign", "-A"]
+        imp.standardOutput = Pipe()
+        imp.standardError = Pipe()
+        try? imp.run()
+        imp.waitUntilExit()
+
+        let trust = Process()
+        trust.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        trust.arguments = ["add-trusted-cert", "-p", "codeSign", "-k",
+                           FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Keychains/login.keychain-db").path,
+                           certPath]
+        trust.standardOutput = Pipe()
+        trust.standardError = Pipe()
+        try? trust.run()
+        trust.waitUntilExit()
+
+        try? FileManager.default.removeItem(atPath: tmpDir)
+        return imp.terminationStatus == 0
+    }
+
+    private func updateElectronTeamID(appPath: String, teamID: String) throws {
+        let plistPath = appPath + "/Contents/Info.plist"
+        guard let plistData = FileManager.default.contents(atPath: plistPath),
+              var plist = try PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] else {
+            return
+        }
+        plist["ElectronTeamID"] = teamID
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: URL(fileURLWithPath: plistPath))
+    }
 
     private mutating func resignApp(appPath: String) throws {
-        entitlementsTempDir = ""
-        entitlementsCounter = 0
-        let contents = appPath + "/Contents"
-        let fm = FileManager.default
-        var fileTargets: [String] = []
-        var bundleTargets: [String] = []
+        if ensureSigningCertificate() {
+            var ent = extractEntitlements(appPath + "/Contents/MacOS/Claude") ?? [:]
+            ent.removeValue(forKey: "com.apple.application-identifier")
+            ent.removeValue(forKey: "com.apple.developer.team-identifier")
+            ent["com.apple.security.cs.disable-library-validation"] = true
 
-        if let enumerator = fm.enumerator(atPath: contents) {
-            while let item = enumerator.nextObject() as? String {
-                let fullPath = contents + "/" + item
-                var isDir: ObjCBool = false
-                fm.fileExists(atPath: fullPath, isDirectory: &isDir)
+            try updateElectronTeamID(appPath: appPath, teamID: "not set")
 
-                if isDir.boolValue {
-                    if item.hasSuffix(".app") || item.hasSuffix(".framework") {
-                        bundleTargets.append(fullPath)
-                    }
-                } else {
-                    if item.hasSuffix(".dylib") || item.hasSuffix(".node") || item.hasSuffix(".so") ||
-                       fm.isExecutableFile(atPath: fullPath) {
-                        fileTargets.append(fullPath)
-                    }
-                }
+            let tmpDir = NSTemporaryDirectory() + "claudecn-ent-" + UUID().uuidString
+            try FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
+            let plistPath = tmpDir + "/app.plist"
+            let plistData = try PropertyListSerialization.data(fromPropertyList: ent, format: .xml, options: 0)
+            try plistData.write(to: URL(fileURLWithPath: plistPath))
+
+            let sign = Process()
+            sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            sign.arguments = ["--force", "--sign", Self.certName, "--options", "runtime",
+                              "--entitlements", plistPath, "--deep", appPath]
+            try sign.run()
+            sign.waitUntilExit()
+            try? FileManager.default.removeItem(atPath: tmpDir)
+            guard sign.terminationStatus == 0 else {
+                throw PatchError.privilegedCommandFailed("重签名失败")
+            }
+        } else {
+            let sign = Process()
+            sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            sign.arguments = ["--force", "--sign", "-", "--deep", appPath]
+            try sign.run()
+            sign.waitUntilExit()
+            guard sign.terminationStatus == 0 else {
+                throw PatchError.privilegedCommandFailed("重签名失败")
             }
         }
-
-        fileTargets.sort { $0.components(separatedBy: "/").count > $1.components(separatedBy: "/").count }
-        for path in fileTargets {
-            try codesign(path)
-        }
-
-        bundleTargets.sort { $0.components(separatedBy: "/").count > $1.components(separatedBy: "/").count }
-        for path in bundleTargets {
-            try codesign(path)
-        }
-
-        try codesign(appPath)
     }
 
-    private var entitlementsTempDir: String = ""
-    private var entitlementsCounter: Int = 0
-
-    private mutating func codesign(_ path: String) throws {
-        if entitlementsTempDir.isEmpty {
-            entitlementsTempDir = NSTemporaryDirectory() + "claudecn-entitlements-" + UUID().uuidString
-            try FileManager.default.createDirectory(atPath: entitlementsTempDir,
-                                                     withIntermediateDirectories: true)
-        }
-
-        let entitlements = loadEntitlements(path)
-
-        var cmd = ["/usr/bin/codesign", "--force", "--sign", "-",
-                   "--options", "runtime", "--preserve-metadata=identifier,flags"]
-
-        if var ent = entitlements {
-            ent["com.apple.security.cs.disable-library-validation"] = true
-            entitlementsCounter += 1
-            let plistPath = entitlementsTempDir + "/\(entitlementsCounter).plist"
-            let plistData = try PropertyListSerialization.data(
-                fromPropertyList: ent, format: .xml, options: 0)
-            try plistData.write(to: URL(fileURLWithPath: plistPath))
-            cmd += ["--entitlements", plistPath]
-        }
-
-        cmd.append(path)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: cmd[0])
-        process.arguments = Array(cmd.dropFirst())
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw PatchError.privilegedCommandFailed("重签名失败: \(path)")
-        }
-    }
-
-    private func loadEntitlements(_ path: String) -> [String: Any]? {
+    private func extractEntitlements(_ path: String) -> [String: Any]? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         process.arguments = ["-d", "--entitlements", ":-", path]
@@ -414,17 +470,10 @@ struct ClaudePatcher {
         process.standardError = Pipe()
         try? process.run()
         process.waitUntilExit()
-
         guard process.terminationStatus == 0 else { return nil }
-
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard !data.isEmpty else { return nil }
-
-        guard let plist = try? PropertyListSerialization.propertyList(
-            from: data, format: nil) as? [String: Any] else {
-            return nil
-        }
-        return plist
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
     }
 
     private func clearQuarantine(appPath: String) throws {
@@ -448,7 +497,30 @@ struct ClaudePatcher {
     }
 
     func launchClaude() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: Self.claudeAppPath))
+        let lsregister = Process()
+        lsregister.executableURL = URL(fileURLWithPath: "/usr/bin/find")
+        lsregister.arguments = [
+            "/System/Library/Frameworks/CoreServices.framework",
+            "-name", "lsregister", "-type", "f"
+        ]
+        let pipe = Pipe()
+        lsregister.standardOutput = pipe
+        lsregister.standardError = Pipe()
+        try? lsregister.run()
+        lsregister.waitUntilExit()
+        if let path = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+            let reg = Process()
+            reg.executableURL = URL(fileURLWithPath: path)
+            reg.arguments = ["-f", Self.claudeAppPath]
+            try? reg.run()
+            reg.waitUntilExit()
+        }
+
+        let launch = Process()
+        launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        launch.arguments = [Self.claudeAppPath]
+        try? launch.run()
     }
 
     // MARK: - Helpers

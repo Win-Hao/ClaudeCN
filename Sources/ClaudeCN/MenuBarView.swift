@@ -26,7 +26,7 @@ struct MenuBarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Claude 汉化助手")
                     .font(.headline)
-                Text("v1.0.0")
+                Text("v1.3.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
