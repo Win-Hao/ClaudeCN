@@ -146,7 +146,6 @@ struct ClaudePatcher {
         ])
 
         try patchLanguageWhitelist(appPath: tempApp)
-        try patchFrontendEntryHTML(appPath: tempApp)
         try mergeFrontendLocale(appPath: tempApp)
         try installDesktopLocale(appPath: tempApp)
         try installStatsigLocale(appPath: tempApp)
@@ -197,86 +196,30 @@ struct ClaudePatcher {
 
         for file in files {
             let fullPath = assetsDir + "/" + file
-            var text = try String(contentsOfFile: fullPath, encoding: .utf8)
+            let text = try String(contentsOfFile: fullPath, encoding: .utf8)
 
             if text.contains("\"zh-CN\"") {
                 injected = true
-            } else {
-                let range = NSRange(text.startIndex..., in: text)
-                for regex in regexes {
-                    let result = regex.stringByReplacingMatches(
-                        in: text, range: range, withTemplate: #"$1,"zh-CN"]"#)
-                    if result != text {
-                        text = result
-                        injected = true
-                        break
-                    }
+                continue
+            }
+
+            let range = NSRange(text.startIndex..., in: text)
+
+            for regex in regexes {
+                let result = regex.stringByReplacingMatches(
+                    in: text, range: range, withTemplate: #"$1,"zh-CN"]"#)
+                if result != text {
+                    try result.write(toFile: fullPath, atomically: true, encoding: .utf8)
+                    injected = true
+                    break
                 }
             }
 
-            if injected {
-                text = patchLocaleInitializer(text)
-                try text.write(toFile: fullPath, atomically: true, encoding: .utf8)
-                break
-            }
+            if injected { break }
         }
 
         if !injected {
             throw PatchError.languageFileNotFound("语言白名单")
-        }
-    }
-
-    private func patchLocaleInitializer(_ text: String) -> String {
-        if text.contains("electronIntl?.getInitialLocale") { return text }
-        let anchor = "...navigator.languages"
-        let ipcSnippet = #"(()=>{try{return window.electronIntl?.getInitialLocale?.()?.locale??null}catch{return null}})()"#
-        return text.replacingOccurrences(
-            of: "})(),\(anchor)",
-            with: "})(),\(ipcSnippet),\(anchor)")
-    }
-
-    // MARK: - Step 1b: Inject locale guard into index.html
-    // Runs before any SPA module: pins spa:locale to zh-CN and
-    // prevents bootstrap / server-side locale from overriding it.
-
-    private func patchFrontendEntryHTML(appPath: String) throws {
-        let htmlPath = appPath + "/Contents/Resources/ion-dist/index.html"
-        let fm = FileManager.default
-
-        guard fm.fileExists(atPath: htmlPath) else { return }
-
-        var html = try String(contentsOfFile: htmlPath, encoding: .utf8)
-
-        if html.contains("claudecn-locale-guard") { return }
-
-        let script = #"""
-        <script id="claudecn-locale-guard">!function(){try{
-        var L="spa:locale",Z="zh-CN";
-        localStorage.setItem(L,Z);
-        var d=Object.getOwnPropertyDescriptor(Storage.prototype,"setItem");
-        if(d&&d.value){var r=d.value;Object.defineProperty(Storage.prototype,"setItem",
-        {value:function(k,v){if(this===localStorage&&k===L&&v!==Z)v=Z;return r.apply(this,arguments)},
-        writable:true,configurable:true})}
-        var bsRe=/\/bootstrap(\/[^/]+\/app_start|\?)/;
-        var oFetch=window.fetch;
-        window.fetch=function(){var a=arguments;return oFetch.apply(this,a).then(function(resp){
-        try{var u=typeof a[0]==="string"?a[0]:(a[0]&&a[0].url)||"";
-        if(bsRe.test(u)){var cl=resp.clone();
-        return cl.json().then(function(j){if(j&&typeof j.locale==="string"){j.locale=Z}
-        return new Response(JSON.stringify(j),{status:resp.status,statusText:resp.statusText,
-        headers:resp.headers})}).catch(function(){return resp})}}catch(e){}return resp})}
-        }catch(e){}}()</script>
-        """#
-
-        html = html.replacingOccurrences(
-            of: "<head>",
-            with: "<head>" + script)
-
-        try html.write(toFile: htmlPath, atomically: true, encoding: .utf8)
-
-        let zstPath = htmlPath + ".zst"
-        if fm.fileExists(atPath: zstPath) {
-            try? fm.removeItem(atPath: zstPath)
         }
     }
 

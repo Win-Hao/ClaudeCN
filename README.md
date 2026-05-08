@@ -65,7 +65,7 @@ open ClaudeCN.xcodeproj
 
 如需恢复，点击「恢复原版」即可还原。
 
-> **建议**：使用汉化时建议先在 Claude Desktop 中开启**开发者模式**（Settings → Developer → 打开开关），可获得最佳汉化效果。登录 Anthropic 账号时也可正常汉化，但服务器端语言偏好可能需要汉化工具额外处理（v1.3.1 已支持）。
+> **重要**：汉化前请先在 Claude Desktop 中开启**开发者模式**（Settings → Developer → 打开开关），否则登录 Anthropic 账号后服务器端语言设置会覆盖本地汉化，导致界面仍显示英文。
 
 ### 系统要求
 
@@ -128,13 +128,6 @@ cargo build --release --target x86_64-pc-windows-gnu
 - 不收集任何用户数据
 
 ## 更新日志
-
-### v1.3.1
-
-- **修复登录 Anthropic 账号后汉化不生效的问题**：服务器端 locale 不再覆盖本地汉化设置
-- 新增 HTML 级别 locale 守护脚本，在 SPA 加载前锁定中文语言
-- 拦截 bootstrap API 的 locale 字段，防止账号语言偏好覆盖汉化
-- 修改 SPA locale 初始化逻辑，支持从 Electron 主进程读取本地 locale 配置
 
 ### v1.3.0
 
