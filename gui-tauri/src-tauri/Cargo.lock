@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "claudecn"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "dirs 5.0.1",
  "plist",
