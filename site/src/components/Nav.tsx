@@ -1,9 +1,15 @@
-import BrandMark from './BrandMark.jsx'
-import { useHeadroom } from '../hooks/useHeadroom.js'
-import { scrollToTop } from '../lib/scroll.js'
-import { GITHUB_URL, RELEASES_URL } from '../lib/links.js'
+import BrandMark from './BrandMark'
+import { useHeadroom } from '../hooks/useHeadroom'
+import { scrollToTop } from '../lib/scroll'
+import { GITHUB_URL, RELEASES_URL } from '../lib/links'
 
-const NAV_LINKS = [
+interface NavLink {
+  href: string
+  label: string
+  num: string
+}
+
+const NAV_LINKS: NavLink[] = [
   { href: '#features', label: '功能', num: '01' },
   { href: '#steps', label: '流程', num: '02' },
 ]

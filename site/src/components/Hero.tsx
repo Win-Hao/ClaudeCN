@@ -1,7 +1,7 @@
-import { asset } from '../lib/asset.js'
-import { DOWNLOAD_WIN } from '../lib/links.js'
-import { useLatestDmg } from '../hooks/useLatestDmg.js'
-import StarButton from './StarButton.jsx'
+import { asset } from '../lib/asset'
+import { DOWNLOAD_WIN } from '../lib/links'
+import { useLatestDmg } from '../hooks/useLatestDmg'
+import StarButton from './StarButton'
 
 /* I · 主视觉 */
 export default function Hero() {

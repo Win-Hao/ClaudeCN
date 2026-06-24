@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
 
+export interface HeadroomState {
+  hidden: boolean
+  scrolled: boolean
+}
+
 /* Headroom 式粘性导航状态：
  *  - hidden  : 下滑且越过 threshold 时隐藏，上滑时出现
- *  - scrolled: 离开页面顶部后为 true（用于切换磨砂吸顶态）
- * 用 rAF 节流滚动事件，passive 监听。返回 { hidden, scrolled }。 */
-export function useHeadroom(threshold = 240, stuckAt = 8) {
-  const [state, setState] = useState({ hidden: false, scrolled: false })
+ *  - scrolled: 离开页面顶部后为 true（用于切换吸顶胶囊态）
+ * 用 rAF 节流滚动事件，passive 监听。 */
+export function useHeadroom(threshold = 240, stuckAt = 8): HeadroomState {
+  const [state, setState] = useState<HeadroomState>({ hidden: false, scrolled: false })
 
   useEffect(() => {
     let lastY = window.pageYOffset

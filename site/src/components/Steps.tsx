@@ -1,4 +1,10 @@
-const STEPS = [
+interface Step {
+  num: string
+  title: string
+  desc: string
+}
+
+const STEPS: Step[] = [
   { num: '01', title: '安装', desc: '下载并打开 ClaudeCN（macOS 拖进「应用程序」；Windows 直接运行）。' },
   { num: '02', title: '开发者模式', desc: '在 Claude 里 Settings → Developer 打开开关，避免被服务端改回英文。' },
   { num: '03', title: '一键汉化', desc: '回到 ClaudeCN 点「一键汉化」，按提示授权后自动替换。' },

@@ -1,23 +1,27 @@
 import { useEffect, useState } from 'react'
-import { GITHUB_URL } from '../lib/links.js'
+import { GITHUB_URL } from '../lib/links'
 
 // 实时拉取仓库 star 数。初始按 0 显示，拉到后更新；请求失败保留兜底值。
 const REPO_API = 'https://api.github.com/repos/Win-Hao/ClaudeCN'
 
-function formatStars(n) {
+interface RepoInfo {
+  stargazers_count?: number
+}
+
+function formatStars(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
   return String(n)
 }
 
 /* GitHub Star 按钮：跳转仓库主页，顺带显示实时 star 数 */
 export default function StarButton() {
-  const [stars, setStars] = useState(0)
+  const [stars, setStars] = useState<number>(0)
 
   useEffect(() => {
     let alive = true
     fetch(REPO_API)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
+      .then((d: RepoInfo | null) => {
         if (alive && d && typeof d.stargazers_count === 'number') setStars(d.stargazers_count)
       })
       .catch(() => {})

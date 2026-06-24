@@ -1,8 +1,13 @@
-import BrandMark from './BrandMark.jsx'
-import { scrollToTop } from '../lib/scroll.js'
-import { GITHUB_URL, RELEASES_URL, CHANGELOG_URL, ISSUES_URL, PROFILE_URL, LICENSE_URL } from '../lib/links.js'
+import BrandMark from './BrandMark'
+import { scrollToTop } from '../lib/scroll'
+import { GITHUB_URL, RELEASES_URL, CHANGELOG_URL, ISSUES_URL, PROFILE_URL, LICENSE_URL } from '../lib/links'
 
-const COLS = [
+interface FootCol {
+  h: string
+  links: Array<[string, string]>
+}
+
+const COLS: FootCol[] = [
   { h: '产品', links: [['核心功能', '#features'], ['使用流程', '#steps'], ['下载', '#cta']] },
   { h: '资源', links: [['下载最新版', RELEASES_URL], ['更新日志', CHANGELOG_URL], ['常见问题', ISSUES_URL], ['源代码', GITHUB_URL]] },
   { h: '项目', links: [['提交反馈', ISSUES_URL], ['作者主页', PROFILE_URL]] },

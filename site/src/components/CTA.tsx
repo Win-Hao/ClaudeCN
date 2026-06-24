@@ -1,6 +1,6 @@
-import Plate from './Plate.jsx'
-import { DOWNLOAD_WIN } from '../lib/links.js'
-import { useLatestDmg } from '../hooks/useLatestDmg.js'
+import Plate from './Plate'
+import { DOWNLOAD_WIN } from '../lib/links'
+import { useLatestDmg } from '../hooks/useLatestDmg'
 
 /* III · 下载 CTA */
 export default function CTA() {

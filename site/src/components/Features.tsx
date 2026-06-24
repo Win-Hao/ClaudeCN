@@ -2,7 +2,14 @@ const ArrowMark = () => (
   <span className="arrow-mark"><svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8" /></svg></span>
 )
 
-const CARDS = [
+interface Card {
+  num: string
+  tag: string
+  title: string
+  body: string
+}
+
+const CARDS: Card[] = [
   { num: '01', tag: '汉化', title: '一键汉化', body: '界面、菜单、原生弹窗一次性全覆盖，点一下即可。' },
   { num: '02', tag: '恢复', title: '一键还原', body: '完整备份英文原版，随时一键恢复，安全无损。' },
   { num: '03', tag: '覆盖', title: '约 100%', body: '18,000+ 条精校译文，未译的新词自动回退英文。' },
