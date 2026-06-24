@@ -1,0 +1,50 @@
+name: Build Windows installer
+
+# 发布 release 时（mac 上 release-mac.sh 建好 release 后）自动在 windows-latest 上
+# 构建 NSIS 安装包并上传到该 release；也可手动 workflow_dispatch 指定 tag 补传。
+# Windows 不做自更新（latest.json 只含 darwin-aarch64），故关掉 updater 产物，免去签名私钥。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要附加 Windows 安装包的 release tag（如 v2.0.0）'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-windows-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: gui-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui-tauri/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui-tauri/src-tauri
+      - run: npm ci
+      - name: Build NSIS installer (no updater artifacts)
+        run: npm run tauri -- build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Upload installer to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          echo "uploading: $exe -> $TAG"
+          gh release upload "$TAG" "$exe" --repo "$GITHUB_REPOSITORY" --clobber
