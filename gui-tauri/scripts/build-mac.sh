@@ -34,7 +34,7 @@ elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ]; then
 else
   echo "→ 公证: (未配置, 自动更新的新包会被 Gatekeeper 拦——见 scripts/signing.local.env.example)"
 fi
-echo "→ 更新签名: ${TAURI_SIGNING_PRIVATE_KEY:+已就绪}${TAURI_SIGNING_PRIVATE_KEY:-(未设, 不产出 updater 产物)}"
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then echo "→ 更新签名: 已就绪"; else echo "→ 更新签名: (未设, 不产出 updater 产物)"; fi
 
 npm run tauri -- build "$@"
 
