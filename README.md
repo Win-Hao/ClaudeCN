@@ -4,6 +4,8 @@
 >
 > 严禁任何形式的商业使用、倒卖或收费分发。如果你是付费获得本软件的，说明你被骗了，请立即举报卖家。
 
+**🌐 官网体验 → [win-hao.github.io/ClaudeCN](https://win-hao.github.io/ClaudeCN/)**　｜　⬇️ [下载最新版](../../releases/latest)
+
 一键将 Claude Desktop 切换为中文界面，支持 **macOS 与 Windows**。基于 **Tauri v2（Rust + React）**，一套代码、同时出两端安装包。
 
 ## 界面预览
