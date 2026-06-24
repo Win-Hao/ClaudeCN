@@ -6,6 +6,14 @@
 
 一键将 Claude Desktop 切换为中文界面，支持 **macOS 与 Windows**。基于 **Tauri v2（Rust + React）**，一套代码、同时出两端安装包。
 
+## 界面预览
+
+| 主界面 | 关于 |
+|:---:|:---:|
+| ![ClaudeCN 主界面](app内容图/Snipaste_2026-06-25_02-58-41.png) | ![关于 ClaudeCN](app内容图/Snipaste_2026-06-25_02-58-17.png) |
+
+> 左：自动检测 Claude 版本 / 译文覆盖率 / 备份状态，点「一键汉化」即可 · 右：关于页（作者信息、使用须知、一键检查更新）
+
 ## 功能
 
 - **一键汉化** Claude Desktop 界面（前端 UI、桌面菜单、原生弹窗全覆盖）
@@ -98,6 +106,14 @@ bash scripts/release-mac.sh      # 发布到 GitHub Releases
 - 自动备份原始文件，Claude 更新后按版本自动重新备份；恢复带**防降级保护**
 - 备份就算误删也不要紧：Claude.app 可从 [claude.ai](https://claude.ai/download) 免费重装即恢复官方原版；聊天记录与登录在 `~/Library/Application Support/Claude/`（与 app 分开存），重装不丢
 - 不修改任何 Claude 核心功能代码，不收集任何用户数据
+
+---
+
+## Star 趋势
+
+如果这个工具帮到了你，欢迎点个 ⭐ **Star** 支持一下 —— 这是对作者最大的鼓励，也能让更多需要的人发现它。
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Win-Hao/ClaudeCN&type=Date)](https://star-history.com/#Win-Hao/ClaudeCN&Date)
 
 ## 作者
 
