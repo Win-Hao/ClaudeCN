@@ -1,185 +1,112 @@
-# ClaudeCN - Claude Desktop 汉化助手
+# ClaudeCN — Claude Desktop 中文汉化工具
 
 > **本软件完全免费** | 作者：**Winhao学AI**（抖音号：**54927876676**）
 >
 > 严禁任何形式的商业使用、倒卖或收费分发。如果你是付费获得本软件的，说明你被骗了，请立即举报卖家。
 
-一键将 Claude Desktop 切换为中文界面，支持 macOS 和 Windows。
-
-![ClaudeCN Screenshot](screenshots/menubar.png)
+一键将 Claude Desktop 切换为中文界面，支持 **macOS 与 Windows**。基于 **Tauri v2（Rust + React）**，一套代码、同时出两端安装包。
 
 ## 功能
 
-- 一键汉化 Claude Desktop 界面（前端、桌面端、原生菜单）
-- 一键恢复原版（完整备份，安全无损）
-- 自动检测 Claude Desktop 安装状态和汉化状态
-- 实时显示处理进度
+- **一键汉化** Claude Desktop 界面（前端 UI、桌面菜单、原生弹窗全覆盖）
+- **一键恢复** 英文原版（完整备份，安全无损）
+- 自动检测 Claude 安装状态、版本、是否已汉化、有无备份
+- 实时进度反馈 +「复制日志」便于反馈
+- **应用内自动更新**（新版本启动自动提示，一键更新）
 - 不修改任何 Claude 核心功能代码
 
 ## 翻译覆盖率
 
-- 前端 UI 翻译：13,800+ 条（完整覆盖 en-US 全部 key）
-- 桌面菜单翻译：355 条
-- 功能特性描述翻译：46 条
+- 前端 UI 翻译：**18,000+ 条**精校译文，完整覆盖当前 Claude 的全部 en-US key（~100%）
+- 桌面菜单、statsig 实验文案、原生 `Localizable.strings` 一并汉化
+- 未翻译的新增 key 自动回退英文（合并时以 en-US 为底，绝不出现哈希乱码）
 - 覆盖 Cowork、Connectors、Claude Code、隐私设置等全部新功能
 
 ---
 
-## macOS 版
+## 安装
 
-基于 Swift + SwiftUI，菜单栏常驻应用。
+### macOS
 
-### 安装
+1. 从 [Releases](../../releases) 下载最新的 `.dmg`
+2. 打开 DMG，把 **ClaudeCN** 拖进 **Applications** 文件夹
+3. 从启动台或 Applications 打开 ClaudeCN
 
-#### 方式一：DMG 安装（推荐）
+> 安装包已 **Apple 公证（Developer ID 签名 + Notarization）**，双击直接打开，无需再敲 `xattr` 解除限制。
 
-1. 从 [Releases](../../releases) 页面下载最新的 `.dmg` 文件
-2. 打开 DMG，将 ClaudeCN 拖入 Applications 文件夹
-3. 首次打开前，在终端执行以下命令解除 macOS 安全限制（仅需一次）：
-   ```bash
-   xattr -cr /Applications/ClaudeCN.app
-   ```
-4. 从启动台或 Applications 打开 ClaudeCN
+**系统要求**：macOS 13.0 (Ventura) 或更高（Apple Silicon）· 已安装 [Claude Desktop](https://claude.ai/download)
 
-#### 方式二：源码构建
+### Windows
 
-需要 [XcodeGen](https://github.com/yonaskolb/XcodeGen) 和 Xcode 16+。
+1. 从 [Releases](../../releases) 下载 `ClaudeCN_x.y.z_x64-setup.exe`
+2. 安装后运行（程序会自动以管理员身份请求提权——Claude 装在受保护目录，必须管理员）
+3. 程序自动检测 Claude 安装状态
 
-```bash
-git clone https://github.com/Win-Hao/ClaudeCN.git
-cd ClaudeCN
-xcodegen generate
-open ClaudeCN.xcodeproj
-```
-
-在 Xcode 中选择 Release 配置，Build 即可。
-
-### 使用方法
-
-1. 确保已安装 [Claude Desktop](https://claude.ai/download)
-2. 打开 ClaudeCN，菜单栏会出现地球图标
-3. 点击图标打开面板，点击「一键汉化」按钮
-4. 输入系统密码授权（需要修改 Claude.app 文件）
-5. 处理过程中状态栏会显示旋转动画和进度提示，完成后通过系统通知告知结果
-6. Claude Desktop 会自动重启为中文界面
-
-如需恢复，点击「恢复原版」即可还原。
-
-> **重要**：汉化前请先在 Claude Desktop 中开启**开发者模式**（Settings → Developer → 打开开关），否则登录 Anthropic 账号后服务器端语言设置会覆盖本地汉化，导致界面仍显示英文。
-
-### 系统要求
-
-- macOS 13.0 (Ventura) 或更高版本
-- Claude Desktop 已安装
+**系统要求**：Windows 10/11（x64）· 已安装 Claude Desktop（MSIX 或 exe 安装版均支持）· 管理员权限
 
 ---
 
-## Windows 版
+## 使用方法
 
-基于 Rust 开发，单文件 exe，无需安装运行时。
+1. 确保已安装 [Claude Desktop](https://claude.ai/download)
+2. **汉化前先开启开发者模式**：在 Claude Desktop 中 **Settings → Developer → 打开开关**（否则登录 Anthropic 账号后服务器端语言设置会覆盖本地汉化，导致界面仍显示英文）
+3. 打开 ClaudeCN，点「**一键汉化**」
+   - **macOS**：会弹一次系统管理员密码框授权（需要换入修改后的 Claude.app）
+   - **Windows**：以管理员身份运行即可
+4. Claude Desktop 自动重启为中文界面
+5. 如需恢复，点「**恢复英文原版**」即可还原（含防降级保护）
 
-### 安装
+> **关于自动更新**：汉化期间 Claude 自身的自动更新会被跳过（签名校验）。想升级 Claude：先「恢复英文原版」→ 让 Claude 更新 → 再汉化。
+> ClaudeCN **自己**的更新是应用内自动的，与上面无关。
 
-1. 从 [Releases](../../releases) 页面下载 `ClaudeCN-Windows.exe`
-2. **右键 → 以管理员身份运行**（必须，Claude 安装在受保护目录）
-3. 程序会自动检测 Claude Desktop 的安装状态
-4. 点击「一键汉化」即可
-5. 汉化完成后 Claude Desktop 会自动重启为中文界面
+---
 
-如需恢复，点击「一键恢复」即可还原为英文版本。
+## 从源码构建
 
-### 源码构建
+新版 GUI 在 [`gui-tauri/`](gui-tauri/)（Tauri v2 + React + TypeScript + Rust）。
 
 ```bash
-cd windows
-
-# 本机编译（Windows 上）
-cargo build --release
-
-# 从 macOS 交叉编译
-rustup target add x86_64-pc-windows-gnu
-brew install mingw-w64
-cargo build --release --target x86_64-pc-windows-gnu
+cd gui-tauri
+npm install
+npm run tauri dev      # 开发：起一个带热重载的窗口
 ```
 
-### 系统要求
+发布（本地出签名+公证的 `.dmg` 并传 GitHub Releases，含自更新清单）见 [`gui-tauri/SIGNING.md`](gui-tauri/SIGNING.md)：
 
-- Windows 10/11（x64 / ARM64）
-- Claude Desktop 已安装（MSIX 或 exe 安装版均支持）
-- 管理员权限
+```bash
+cd gui-tauri
+bash scripts/build-mac.sh        # 编译 + Developer ID 签名 + 公证 + 自更新产物
+bash scripts/gen-latest-json.sh  # 生成更新清单 latest.json
+bash scripts/release-mac.sh      # 发布到 GitHub Releases
+```
+
+> 汉化逻辑的「真相源」是 [`skills/claude-localize/`](skills/claude-localize/)（Claude 桌面端 i18n 机制 + 精校译文 + 自增长翻译流程）。GUI 是消费端：把 skill 维护的 `zh-CN.base.json` 打包进去。Claude 出新版、新增英文文案时，由维护者跑该 skill 翻译增量、回灌进 GUI 再发版。
 
 ---
 
 ## 工作原理
 
-两个版本的汉化原理相同：
-
-1. 备份原始文件（macOS: zip 备份整个 Claude.app；Windows: 备份 index.js）
-2. 将中文翻译文件注入 Claude 的 i18n 目录（与 en-US.json 合并，确保未翻译的 key 回退为英文）
-3. 在语言白名单中添加 `zh-CN`（唯一的 JS 修改，仅添加一个数组元素）
-4. 设置 Claude Desktop 的语言偏好为中文
-5. macOS 额外步骤：重新签名应用，保留原有权限
+1. **备份**原版（macOS 用 `ditto` 打包整个 Claude.app；Windows 备份会被改动的 `index-*.js`）
+2. 把中文译文写进 Claude 的 i18n 文件——**尤其覆盖 `en-US.json`**（实际生效的 locale 常被账号/服务端定为 en-US 并回写，故覆盖 en-US 最稳；未译 key 已回退英文，不丢兜底），并写 `zh-CN.json` / `zh.json`
+3. 汉化桌面菜单层（`Contents/Resources/<locale>.json` + `Localizable.strings`）
+4. 语言白名单：旧版 Claude 在 `index-*.js` 里有硬编码语言数组时注入 `zh-CN`；新版改为动态加载，自动跳过
+5. 把语言偏好写进 Claude 所有数据目录的 `config.json`（含接入第三方/自定义模型时用的 `Claude-3p`）
+6. **macOS 额外**：ad-hoc 重签名——剥掉绑定 Team ID/Apple 授权的 entitlements（否则新版 macOS 启动拒绝），保留摄像头/麦克风/截屏等能力。**Windows 无需签名**，提权直接改文件
 
 ## 安全性
 
-- 自动备份原始文件，Claude 更新后自动重新备份
-- 恢复功能从备份还原，确保与原版完全一致
-- 不修改任何 Claude 的核心功能代码
-- 不收集任何用户数据
-
-## 更新日志
-
-### v1.3.0
-
-- 适配 Claude Desktop v1.6608.0
-- 适配 macOS 15.6 签名机制变更
-
-### v1.2.2
-
-- Windows：闪退时弹出错误对话框（含运行日志），方便用户截图反馈
-- Windows：修复非管理员点击"刷新状态"绕过权限检查的 bug
-- Windows：用 Win32 MessageBoxW 替代 `msg *`，修复家庭版 Windows 闪退无提示的问题
-- Windows：新增 SEH 崩溃捕获，显卡驱动不兼容等严重错误也能弹窗提示
-
-### v1.2.1
-
-- **修复"显示已汉化但实际未生效"的问题**（Windows + macOS）
-- Windows：修复 locale 配置写入错误路径的 bug（开发者模式 / 普通模式现在都能正确生效）
-- Windows：大幅扩展安装路径检测，支持 10+ 安装位置 + 注册表兜底查询
-- Windows：新增 ARM64 设备支持
-- macOS：修复白名单注入失败时不报错的问题
-- 两端语言白名单注入改用 3 套正则兜底，适配更多 Claude 版本
-- 汉化完成后新增验证步骤，不通过会明确报错
-- Claude 自动更新后状态检测会正确显示"未汉化"
-
-### v1.2.0
-
-- 新增 1,500 条翻译，完整覆盖最新版 Claude Desktop 全部 i18n key
-- 覆盖 Cowork、Connectors、Plugins、Claude Code 等全部新功能
-- 新增 Windows 版（Rust GUI 工具）
-- 翻译文件与 en-US.json 合并，新增 key 自动回退英文
-
-### v1.1.0
-
-- 新增状态栏实时进度反馈（旋转动画 + 进度文字）
-- 修复 NSPopover 焦点问题
-- 安全性改进
-
-### v1.0.0
-
-- 初始版本（macOS）
-- 一键汉化/恢复 Claude Desktop
+- 自动备份原始文件，Claude 更新后按版本自动重新备份；恢复带**防降级保护**
+- 备份就算误删也不要紧：Claude.app 可从 [claude.ai](https://claude.ai/download) 免费重装即恢复官方原版；聊天记录与登录在 `~/Library/Application Support/Claude/`（与 app 分开存），重装不丢
+- 不修改任何 Claude 核心功能代码，不收集任何用户数据
 
 ## 作者
 
-**Winhao学AI**（抖音号：**54927876676**）
-
-欢迎关注作者抖音获取更多 AI 工具和教程。
+**Winhao学AI**（抖音号：**54927876676**）— 欢迎关注获取更多 AI 工具和教程。
 
 ## 声明
 
 - 本项目为社区开源工具，与 Anthropic 公司无关，非官方产品。
-- **本软件完全免费，严禁任何形式的商业使用**，包括但不限于：出售、收费分发、作为付费服务的一部分。
+- **本软件完全免费，严禁任何形式的商业使用**（出售、收费分发、作为付费服务的一部分等均不允许）。
 - 如果你是通过付费渠道获得本软件的，你被骗了！请举报卖家并从本仓库免费下载。
 
 ## 许可证
