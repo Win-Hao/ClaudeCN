@@ -1,0 +1,66 @@
+name: CI (gui-tauri)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gui-tauri/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'gui-tauri/**'
+      - '.github/workflows/ci.yml'
+
+# 同一分支/PR 只保留最新一次在跑，省 runner
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: gui-tauri
+
+jobs:
+  check:
+    name: Check · Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui-tauri/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui-tauri/src-tauri
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Type check (tsc)
+        run: npm run check
+
+      # generate_context! 会内嵌 ../build 与图标，故 clippy/test 前必须先产出前端 dist
+      - name: Frontend build
+        run: npm run build
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # 真实 app 集成测试是 #[ignore] 的（需本机装 Claude），CI 默认跳过；这里只跑纯逻辑单测
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml

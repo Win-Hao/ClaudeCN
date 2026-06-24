@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>ClaudeCN</title>
+    <style>
+      /* 冷启动兜底底色（深浅与 src/index.css --bg 一致），防 WKWebView 首帧白屏。 */
+      html,
+      body {
+        margin: 0;
+        background: #f3f4f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #1b1c1f;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

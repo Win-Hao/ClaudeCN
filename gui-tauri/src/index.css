@@ -1,0 +1,401 @@
+@import "tailwindcss";
+
+/* ============================================================
+   设计 token —— 颜色 / 圆角 / 阴影 / 字体集中定义，浅深色双主题
+   跟随系统 prefers-color-scheme（不引入主题切换器，保持功能不变）。
+   方向：macOS 原生克制风——精准、淡边框、单层蓝边选中，不堆视觉特效。
+   ============================================================ */
+:root {
+  --font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* 圆角 */
+  --r-card: 12px;
+  --r-control: 8px;
+  --radius: 8px; /* shadcn borderRadius 基准（= --r-control） */
+
+  /* 表面与文字（浅色） */
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-hover: #f5f6f8;
+  --fg: #1c1d21;
+  --fg-2: #6c6f78;
+  --fg-3: #9a9da6;
+
+  /* 描边 */
+  --border: rgba(0, 0, 0, 0.1);
+  --hairline: rgba(0, 0, 0, 0.07);
+
+  /* 控件 */
+  --control: #ffffff;
+  --control-border: rgba(0, 0, 0, 0.14);
+  --control-hover: #f1f2f4;
+  --kbd-bg: #f6f7f9;
+
+  /* 分段控件（macOS：浅灰轨 + 选中段浮起） */
+  --seg-bg: rgba(118, 118, 128, 0.12);
+  --seg-sel: #ffffff;
+
+  /* 强调色（macOS 系统蓝） */
+  --accent: #007aff;
+  --accent-hover: #0a6fe0;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(0, 122, 255, 0.1);
+
+  /* 录音状态灯 */
+  --red: #e5484d;
+  --red-soft: rgba(229, 72, 77, 0.22);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1c1f;
+    --surface: #242529;
+    --surface-hover: rgba(255, 255, 255, 0.05);
+    --fg: #f2f3f6;
+    --fg-2: rgba(236, 237, 242, 0.6);
+    --fg-3: rgba(236, 237, 242, 0.38);
+
+    --border: rgba(255, 255, 255, 0.1);
+    --hairline: rgba(255, 255, 255, 0.08);
+
+    --control: rgba(255, 255, 255, 0.06);
+    --control-border: rgba(255, 255, 255, 0.15);
+    --control-hover: rgba(255, 255, 255, 0.1);
+    --kbd-bg: rgba(255, 255, 255, 0.07);
+
+    --seg-bg: rgba(255, 255, 255, 0.06);
+    --seg-sel: rgba(255, 255, 255, 0.16);
+
+    --accent: #0a84ff;
+    --accent-hover: #3a98ff;
+    --accent-soft: rgba(10, 132, 255, 0.2);
+
+    --red: #ff453a;
+    --red-soft: rgba(255, 69, 58, 0.26);
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-pop: 0 24px 60px rgba(0, 0, 0, 0.55), 0 8px 22px rgba(0, 0, 0, 0.4);
+  }
+}
+
+@layer base {
+  body {
+    font-family: var(--font);
+  }
+}
+
+/* ============================================================
+   组件层 —— 复用度高、纯 utility 写起来啰嗦的精修控件集中放这。
+   token 驱动，自动跟随浅深色；utilities 层仍可逐元素覆盖。
+   ============================================================ */
+@layer components {
+  /* 分组卡片 */
+  .card {
+    overflow: hidden;
+    border-radius: var(--r-card);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+  }
+  /* 分组小标题：压成次要灰字 */
+  .card-head {
+    padding: 12px 16px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--fg-2);
+  }
+
+  /* 统一行：图标 / 文案 / 控件一行排布 */
+  .ui-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    text-align: left;
+  }
+  /* 可点击行的 hover */
+  .tap {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .tap:hover {
+    background: var(--surface-hover);
+  }
+
+  /* 文字层次 */
+  .desc {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--fg-2);
+  }
+  .lead {
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-2);
+  }
+
+  /* 输入框 */
+  .input {
+    width: 100%;
+    border-radius: var(--r-control);
+    border: 1px solid var(--control-border);
+    background: var(--control);
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--fg);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input::placeholder {
+    color: var(--fg-3);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  /* 加 / 删 小按钮 */
+  .btn-add {
+    display: grid;
+    place-items: center;
+    height: 36px;
+    width: 36px;
+    flex: none;
+    border-radius: var(--r-control);
+    background: var(--accent);
+    color: var(--accent-fg);
+    transition: background 0.15s;
+  }
+  .btn-add:hover {
+    background: var(--accent-hover);
+  }
+  .btn-add:disabled {
+    opacity: 0.4;
+  }
+  .btn-del {
+    display: grid;
+    place-items: center;
+    height: 28px;
+    width: 28px;
+    flex: none;
+    border-radius: 6px;
+    color: var(--fg-3);
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn-del:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .btn-del:disabled {
+    opacity: 0.3;
+  }
+  .btn-del:disabled:hover {
+    background: transparent;
+    color: var(--fg-3);
+  }
+
+  /* 分段控件（macOS 风格：浅灰轨 + 选中段浮起） */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--r-control);
+    background: var(--seg-bg);
+  }
+  .seg button {
+    flex: 1 1 auto;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: var(--fg);
+    padding: 5px 12px;
+    border-radius: calc(var(--r-control) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .seg button:hover:not(.on) {
+    background: var(--surface-hover);
+  }
+  .seg button.on {
+    background: var(--seg-sel);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    font-weight: 600;
+  }
+
+  /* 快捷键键帽（等宽、可点击录制） */
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--fg);
+    background: var(--kbd-bg);
+    border: 1px solid var(--control-border);
+    border-radius: 7px;
+    padding: 5px 10px;
+    min-width: 84px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .kbd:hover {
+    background: var(--control-hover);
+  }
+  .kbd.recording {
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  /* 状态胶囊 + 状态灯 */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fg-2);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    padding: 4px 11px;
+    border-radius: 999px;
+    box-shadow: var(--shadow-card);
+  }
+  .led {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fg-3);
+    flex: none;
+  }
+  .led.on {
+    background: var(--red);
+    box-shadow: 0 0 0 3px var(--red-soft);
+  }
+
+  /* 浮层（选麦弹窗）阴影 */
+  .elev-pop {
+    box-shadow: var(--shadow-pop);
+  }
+}
+
+/* 全局隐藏滚动条（内容仍可滚动）—— 保持现有克制观感 */
+::-webkit-scrollbar {
+  display: none;
+}
+html {
+  scrollbar-width: none; /* 标准属性兜底 */
+}
+
+/* ============================================================
+   ClaudeCN 专属：不确定进度条 + 主操作按钮
+   ============================================================ */
+@layer components {
+  .progress-track {
+    position: relative;
+    height: 6px;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--seg-bg);
+  }
+  .progress-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40%;
+    border-radius: 999px;
+    background: var(--accent);
+    animation: cn-indeterminate 1.15s ease-in-out infinite;
+  }
+
+  /* 主操作按钮（实心强调色） */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 44px;
+    border-radius: var(--r-control);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.06s;
+  }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
+  .btn-primary:active {
+    transform: scale(0.99);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  /* 次要按钮（描边） */
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 40px;
+    border-radius: var(--r-control);
+    background: var(--control);
+    border: 1px solid var(--control-border);
+    color: var(--fg);
+    font-size: 14px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-secondary:hover {
+    background: var(--control-hover);
+  }
+  .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  /* 文字按钮（页脚） */
+  .btn-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--fg-2);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .btn-text:hover {
+    color: var(--fg);
+  }
+}
+
+@keyframes cn-indeterminate {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}

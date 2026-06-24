@@ -1,0 +1,84 @@
+<!doctype html>
+<!--
+  ClaudeCN .dmg 安装窗口背景图的设计源（结构照搬 untype，配色换成 ClaudeCN 珊瑚橙）。
+  渲染：Chrome headless 截 1320×800（@2x）→ background@2x.png；
+        再 `sips -z 400 660` 缩成 660×400 → background.png（= windowSize 决定布局）。
+  图标坐标见 tauri.conf.json 的 bundle.macOS.dmg。
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+      --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+      --user-data-dir=<temp> --screenshot=background@2x.png --window-size=1320,800 \
+      file://.../background.src.html
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>ClaudeCN dmg bg</title>
+<style>
+  :root{
+    --canvas-top:   #161719;
+    --canvas-bottom:#1b1c1f;
+    --ink:          #F2F3F6;
+    --ink-sub:      rgba(242,243,246,0.60);
+    --accent:       #E8825A;   /* ClaudeCN 珊瑚橙（Claude 标志色） */
+    --hint:         rgba(242,243,246,0.40);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ width:1320px; height:800px; background:var(--canvas-bottom);
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+  #stage{
+    position:relative; width:1320px; height:800px; overflow:hidden;
+    background:linear-gradient(180deg, var(--canvas-top) 0%, var(--canvas-bottom) 62%);
+  }
+  /* 顶部柔光：用品牌橙极淡晕染，整体氛围更暖（呼应橙色 app 图标） */
+  #stage::before{
+    content:""; position:absolute; left:50%; top:-8%;
+    width:880px; height:580px; transform:translateX(-50%);
+    background:radial-gradient(ellipse at center,
+                rgba(232,130,90,0.10) 0%, rgba(232,130,90,0.035) 40%, rgba(232,130,90,0) 70%);
+    pointer-events:none;
+  }
+  /* 透白拖拽卡片 */
+  .tray{
+    position:absolute; left:90px; right:90px; top:300px; height:392px;
+    background:rgba(255,255,255,0.13);
+    border:1px solid rgba(255,255,255,0.14);
+    border-radius:40px;
+    box-shadow:0 1px 0 rgba(255,255,255,0.07) inset;
+  }
+  .brand{ position:absolute; left:0; right:0; top:138px; text-align:center; z-index:1; }
+  .wordmark{
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue",system-ui,sans-serif;
+    font-size:72px; font-weight:600; letter-spacing:-0.022em; line-height:1; color:var(--ink);
+  }
+  .wordmark .cn{ color:var(--accent); }
+  .tagline{
+    margin-top:22px;
+    font-family:-apple-system,"PingFang SC","SF Pro Text",system-ui,sans-serif;
+    font-size:18px; font-weight:400; letter-spacing:0.16em; color:var(--ink-sub);
+  }
+  /* 中间「拖拽至」：双箭头(lucide chevrons-right) + 文字 */
+  .drag-arrow{ position:absolute; left:50%; top:484px; transform:translate(-50%,-50%); z-index:2; line-height:0; }
+  .drag-arrow svg{ width:84px; height:84px; }
+  .drag-label{
+    position:absolute; left:50%; top:556px; transform:translate(-50%,-50%); z-index:2;
+    font-family:-apple-system,"PingFang SC","SF Pro Text",system-ui,sans-serif;
+    font-size:18px; font-weight:400; letter-spacing:0.16em; color:var(--hint); white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div class="tray"></div>
+    <div class="brand">
+      <div class="wordmark">Claude<span class="cn">CN</span></div>
+      <div class="tagline">Claude Desktop 中文界面</div>
+    </div>
+    <div class="drag-arrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="rgba(232,130,90,0.55)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>
+      </svg>
+    </div>
+    <div class="drag-label">拖拽至</div>
+  </div>
+</body>
+</html>

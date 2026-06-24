@@ -1,0 +1,41 @@
+[package]
+name = "claudecn"
+version = "0.1.0"
+description = "ClaudeCN — Claude Desktop 中文汉化工具"
+authors = ["ClaudeCN"]
+edition = "2021"
+
+[lib]
+# `_lib` 后缀避免与 bin 同名冲突（Windows 上的已知问题）。
+name = "claudecn_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+# GUI 自身的应用内自动更新（GitHub releases latest.json + minisign 验签）
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"       # 语言白名单自适应探测
+walkdir = "2"     # 目录遍历（找 index-*.js / en-US.json）
+dirs = "5"        # 跨平台定位 home/config 目录
+
+# macOS：读写 Info.plist / 提取-过滤 entitlements
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
+# Windows：定位/提权/备份均走 std::process::Command（reg/takeown/icacls/tasklist），
+# 无需额外 crate。en-US 原件由 write_frontend 旁置 en-US.original.json 保管。
+
+# 桌面应用优先优化体积而非极致性能
+[profile.release]
+codegen-units = 1   # 更好的优化（牺牲编译速度）
+lto = "thin"        # 链接时优化
+opt-level = "s"     # 优化体积
+panic = "unwind"
+strip = "symbols"   # 去符号，减小体积

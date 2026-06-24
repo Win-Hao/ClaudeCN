@@ -1,22 +1,21 @@
-# Xcode
-*.xcodeproj/
-xcuserdata/
-DerivedData/
-*.xcworkspace/
-build/
-
 # macOS
 .DS_Store
 *.swp
 *~
 
-# Temporary logo processing files
-logo.png
-logo.jpg
-logo_src.png
-logo_final.png
-logo_final_rounded.png
-logo_final_padded.png
+# Serena 工具缓存
+/.serena/
 
-# Build output
+# 根目录 logo 工作文件（图标已生成进 gui-tauri/src-tauri/icons/，源文件不入库；
+# 锚定到根，避免误伤 gui-tauri/src/assets/logo.png 等嵌套资源）
+/logo*.png
+/logo*.jpg
+/logo_src.png
+
+# 构建产物
 *.dmg
+build/
+
+# Python（skill 脚本的字节码缓存）
+__pycache__/
+*.pyc

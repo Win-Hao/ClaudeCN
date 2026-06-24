@@ -1,0 +1,17 @@
+.DS_Store
+node_modules
+/build
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri 构建产物与生成文件
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Tauri icon 生成的移动端图标（本项目不需要）
+/src-tauri/icons/android
+/src-tauri/icons/ios
+
+# 本地签名凭据（含证书名/公证 Key 路径，切勿提交）
+/scripts/signing.local.env
+

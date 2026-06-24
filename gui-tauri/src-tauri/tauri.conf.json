@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ClaudeCN",
+  "version": "0.1.0",
+  "identifier": "com.claudecn.gui",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ClaudeCN",
+        "visible": true,
+        "center": true,
+        "width": 560,
+        "height": 580,
+        "minWidth": 460,
+        "minHeight": 520,
+        "resizable": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "resources": [
+      "resources/zh-CN.base.json",
+      "resources/desktop-zh-CN.base.json",
+      "resources/statsig-zh-CN.base.json",
+      "resources/claude-Localizable.strings"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "dmg": {
+        "background": "dmg/background.png",
+        "windowSize": { "width": 660, "height": 428 },
+        "appPosition": { "x": 180, "y": 240 },
+        "applicationFolderPosition": { "x": 480, "y": 240 }
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Win-Hao/ClaudeCN/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2NkYwRDE0QkY4NDUzOUEKUldTYVU0Uy9GQTF2RnBzK1FtelVPbDFBUGF2V3ZPeHRzdzNsY1pVVjYxQ0xUVHRHQTE4ZHlFOWYK"
+    }
+  }
+}
