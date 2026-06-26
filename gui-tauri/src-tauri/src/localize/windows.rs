@@ -12,7 +12,8 @@ use walkdir::WalkDir;
 use super::assets;
 use super::{
     build_merged, coverage, en_source, is_patched, load_json_map, patch_whitelist,
-    remove_locale_config, report, write_frontend, write_locale_config, write_statsig,
+    remove_locale_config, report, unpatch_whitelist, verify_frontend, write_frontend,
+    write_locale_config, write_statsig, ZH_LOCALES,
 };
 use super::{ClaudeStatus, LocalizeResult};
 
@@ -517,9 +518,19 @@ pub fn apply(app: &tauri::AppHandle) -> Result<LocalizeResult, String> {
     write_desktop(&inst, app)?;
     write_statsig(&i18n, &assets::statsig_base(app))?;
 
-    report(app, "正在注入语言白名单…");
+    report(app, "正在注入语言白名单（扫 chunk，非仅 index）…");
     let wl = patch_whitelist(&inst.assets_dir());
     report(app, format!("  白名单: {wl}"));
+
+    // 自检：渲染层 i18n 加载器会 fetch 的文件齐全且合法，否则会白屏。Windows 原地写入，
+    // 失败就让用户用「恢复原版」回退（备份 + en-US.original 都在）。
+    let problems = verify_frontend(&i18n);
+    if !problems.is_empty() {
+        return Err(format!(
+            "汉化文件自检未通过：\n  - {}\n为避免白屏已停在此处，请用「恢复原版」回退后重试。",
+            problems.join("\n  - ")
+        ));
+    }
 
     report(app, "正在设置语言配置…");
     write_locale_config(&appdata_dir()?)?; // ⑤ 所有 Claude/Claude-* 目录
@@ -565,6 +576,10 @@ pub fn restore(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
 
     report(app, "正在恢复原始文件…");
     restore_index_js(&inst)?;
+    // 把注入到“支持 locale 列表”里的 zh-CN 去掉（现版数组在 chunk 里，index 备份盖不到它）。
+    // 不去掉的话：还原成英文后，数组仍声明支持 zh-CN，但 zh-CN 文件已删 → 协商到 zh-CN
+    // 时 fetch 404 → 还原后的英文版反而白屏。unpatch 直接从数组里移除，与备份是否完整无关。
+    let _ = unpatch_whitelist(&inst.assets_dir());
     // en-US 从旁置原件还原（§① 的逆操作）
     let orig = i18n.join("en-US.original.json");
     if orig.exists() {
@@ -575,17 +590,13 @@ pub fn restore(app: &tauri::AppHandle, force: bool) -> Result<(), String> {
     }
 
     report(app, "正在清理译文…");
-    for rel in [
-        "zh-CN.json",
-        "zh.json",
-        "zh-CN.overrides.json",
-        "zh.overrides.json",
-        "dynamic/zh-CN.json",
-        "dynamic/zh.json",
-        "statsig/zh-CN.json",
-    ] {
-        let _ = fs::remove_file(i18n.join(rel));
+    // 清掉 write_frontend 写的所有中文 locale（含全部别名）的 public/overrides/dynamic。
+    for loc in ZH_LOCALES {
+        let _ = fs::remove_file(i18n.join(format!("{loc}.json")));
+        let _ = fs::remove_file(i18n.join(format!("{loc}.overrides.json")));
+        let _ = fs::remove_file(i18n.join("dynamic").join(format!("{loc}.json")));
     }
+    let _ = fs::remove_file(i18n.join("statsig/zh-CN.json"));
     let _ = fs::remove_file(inst.resources_dir.join("zh-CN.json"));
 
     report(app, "正在恢复配置…");

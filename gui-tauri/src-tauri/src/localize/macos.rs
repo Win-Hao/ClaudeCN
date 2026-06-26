@@ -12,7 +12,8 @@ use super::assets;
 use super::{
     backup_dir, build_merged, coverage, en_source, existing_backup, find_assets_dir,
     find_i18n_dir, is_patched, load_json_map, patch_whitelist, remove_locale_config, report,
-    write_frontend, write_locale_config, write_statsig, BACKUP_README, LOCALE,
+    verify_frontend, write_frontend, write_locale_config, write_statsig, BACKUP_README,
+    FRONTEND_LOCALES, LOCALE,
 };
 use super::{ClaudeStatus, LocalizeResult};
 
@@ -327,12 +328,24 @@ pub fn apply(app: &AppHandle) -> Result<LocalizeResult, String> {
     write_desktop(&staged, app)?;
     write_statsig(&i18n, &assets::statsig_base(app))?;
 
-    report(app, "处理语言白名单…");
+    report(app, "处理语言白名单（扫 chunk，非仅 index）…");
     let wl = match &assets_dir {
         Some(a) => patch_whitelist(a),
         None => "no-assets".to_string(),
     };
     report(app, format!("  白名单: {wl}"));
+
+    // 换入前自检：拦截会导致白屏的损坏。失败就直接中止——此刻还没动 /Applications 里的 app。
+    report(app, "自检渲染层 i18n（避免换入后白屏）…");
+    let problems = verify_frontend(&i18n);
+    if !problems.is_empty() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(format!(
+            "汉化文件自检未通过，已中止（你的 Claude 未被改动）：\n  - {}\n这道关专门拦截换入后会白屏的损坏。请重试；若反复失败，可能是该 Claude 版本结构变了。",
+            problems.join("\n  - ")
+        ));
+    }
+    report(app, format!("  自检通过：{} 个 locale 前端文件齐全且合法", FRONTEND_LOCALES.len()));
 
     report(app, "重签名（ad-hoc）…");
     resign(&staged)?;

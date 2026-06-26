@@ -98,25 +98,58 @@ def find_assets_dir(app: Path) -> Path | None:
     return None
 
 
-def detect_whitelist(assets_dir: Path | None) -> dict:
-    """判断这个版本是否仍用'硬编码语言白名单数组'。新版（动态 fetch）通常没有。"""
-    result = {"needs_js_patch": False, "already_has_zh": False, "index_files": []}
+# 语言白名单（“支持的 locale”数组）现版藏在内容哈希的 *chunk* 里（如
+# assets/v1/ccc72bfa9-*.js）——不在 index-*.js。旧逻辑只扫 index-*.js 会漏掉它，
+# 于是 detect 误报“无白名单”，zh-CN 永远不被登记为真正的 locale，汉化只能靠覆盖
+# en-US 硬撑；一旦渲染层/主进程协商出的 locale 缺对应 i18n 文件，加载器抛错、界面
+# 永远不就绪 → 白屏（且错误被 React-Query 吞掉，日志里什么都没有）。所以扫描全部 *.js。
+_WL_SIGNATURE = b'["en-US"'  # 数组字面量起始，作为快速字节预筛（避免逐个解码 700+ 文件）
+_WL_PATTERNS = [
+    # 精确匹配当前已知的支持-locale 数组（成员/顺序固定时优先命中）
+    r'(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*?)\]',
+    # 通用兜底：["en-US","xx-YY",…]（至少 3 个成员，认作 locale 列表而非普通数组）
+    r'(\["en-US"(?:,"[a-z]{2,3}(?:-[A-Za-z0-9]{2,4})*"){3,}?)\]',
+]
+
+
+def _locale_list_js(assets_dir: Path | None) -> list[Path]:
+    """assets 下所有“含硬编码 locale 数组”的 JS。现版在 chunk 而非 index-*.js，故扫全部 *.js。"""
+    out = []
     if not assets_dir:
-        return result
-    idx = sorted(assets_dir.glob("index-*.js"))
-    result["index_files"] = [p.name for p in idx]
-    patterns = [
-        r'\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\]',
-        r'\["en-US"(?:\s*,\s*"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\s*\]',
-    ]
-    for p in idx:
+        return out
+    for p in sorted(assets_dir.glob("*.js")):
         try:
-            text = p.read_text(encoding="utf-8", errors="ignore")
+            if _WL_SIGNATURE not in p.read_bytes():
+                continue
         except Exception:
             continue
-        if '"zh-CN"' in text:
+        out.append(p)
+    return out
+
+
+def _first_wl_match(text: str):
+    for pat in _WL_PATTERNS:
+        m = re.search(pat, text)
+        if m:
+            return m
+    return None
+
+
+def detect_whitelist(assets_dir: Path | None) -> dict:
+    """是否仍有“硬编码支持-locale 数组”，以及它是否已含 zh-CN。扫描全部 *.js（含 chunk）。"""
+    result = {"needs_js_patch": False, "already_has_zh": False,
+              "locale_list_files": [], "scanned_js": 0}
+    if not assets_dir:
+        return result
+    result["scanned_js"] = len(list(assets_dir.glob("*.js")))
+    for p in _locale_list_js(assets_dir):
+        m = _first_wl_match(p.read_text(encoding="utf-8", errors="ignore"))
+        if not m:
+            continue
+        result["locale_list_files"].append(p.name)
+        if '"zh-CN"' in m.group(0):
             result["already_has_zh"] = True
-        elif any(re.search(pat, text) for pat in patterns):
+        else:
             result["needs_js_patch"] = True
     return result
 
@@ -222,7 +255,12 @@ def cmd_prepare(args):
 # config.json，所以光设 config.locale=zh-CN 无效。最稳妥：把中文译文直接写进 app 真正会
 # 加载的 locale 文件——尤其 en-US.json。未译 key 已在 merged 里回退英文，所以覆盖 en-US.json
 # 不会丢英文兜底。原始英文存到 en-US.original.json，供重复打补丁/合并时作纯净英文源。
-TARGET_LOCALES = ("en-US", "zh-CN", "zh")
+# en-US 必须覆盖（zh-CN 未被登记为 locale 时，app 会把中文一路协商回退到 en-US）。
+# zh-* 别名覆盖渲染层(DW/navigator)或主进程(x3i)可能协商出的所有写法，确保 i18n
+# 加载器永远 fetch 得到合法中文文件，绝不命中 404 → 杜绝“永不就绪”的白屏。
+ZH_LOCALES = ("zh-CN", "zh", "zh-Hans", "zh-Hans-CN", "zh-Hant", "zh-TW", "zh-HK", "zh-MO", "zh-SG")
+FRONTEND_LOCALES = ("en-US",) + ZH_LOCALES
+TARGET_LOCALES = FRONTEND_LOCALES  # 兼容旧引用
 
 
 def write_frontend(i18n_dir: Path, merged: dict):
@@ -230,19 +268,43 @@ def write_frontend(i18n_dir: Path, merged: dict):
     if not orig.exists():
         shutil.copyfile(i18n_dir / "en-US.json", orig)
     blob = json.dumps(merged, ensure_ascii=False, sort_keys=True)
-    for name in TARGET_LOCALES:
-        (i18n_dir / f"{name}.json").write_text(blob, encoding="utf-8")
-    # zh-CN/zh 可能被 fetch overrides；en-US 不会(app 对 en-US 不请求 overrides)，别动它
-    for name in ("zh-CN", "zh"):
-        ov = i18n_dir / f"{name}.overrides.json"
-        if not ov.exists():
-            ov.write_text("{}", encoding="utf-8")
     dyn = i18n_dir / "dynamic"
-    if dyn.exists() and (dyn / "en-US.json").exists():
-        for name in ("zh-CN", "zh"):
-            tgt = dyn / f"{name}.json"
-            if not tgt.exists():
-                shutil.copyfile(dyn / "en-US.json", tgt)
+    has_dyn = dyn.exists() and (dyn / "en-US.json").exists()
+    for name in FRONTEND_LOCALES:
+        (i18n_dir / f"{name}.json").write_text(blob, encoding="utf-8")
+        if name == "en-US":
+            # en-US：加载器不请求 overrides；dynamic/en-US.json 是中文回退源，二者都别动
+            continue
+        # overrides 会被加载器叠加在 public 之上：残留的他语 overrides 会把外语/英文
+        # 顶回我们的中文，所以每个中文 locale 的 overrides 一律清成空（也避免 404）。
+        (i18n_dir / f"{name}.overrides.json").write_text("{}", encoding="utf-8")
+        # 加载器强制要求 dynamic/{locale}.json（!ok 直接抛错），镜像 en-US 的英文回退。
+        if has_dyn:
+            shutil.copyfile(dyn / "en-US.json", dyn / f"{name}.json")
+
+
+def verify_frontend(i18n_dir: Path) -> list:
+    """换入前自检：渲染层 i18n 加载器会 fetch 的每个文件都在且是合法 JSON。
+    返回问题列表（空=OK）。把潜在的“换入后白屏”变成换入前的干净中止。"""
+    problems = []
+    dyn = i18n_dir / "dynamic"
+    has_dyn = dyn.exists() and (dyn / "en-US.json").exists()
+    for name in FRONTEND_LOCALES:
+        targets = [i18n_dir / f"{name}.json"]
+        if has_dyn:
+            targets.append(dyn / f"{name}.json")
+        ov = i18n_dir / f"{name}.overrides.json"
+        if ov.exists():
+            targets.append(ov)
+        for f in targets:
+            if not f.exists():
+                problems.append(f"缺失 {f.name}")
+                continue
+            try:
+                json.loads(f.read_text(encoding="utf-8"))
+            except Exception as e:
+                problems.append(f"非法 JSON {f.name}: {e}")
+    return problems
 
 
 def write_desktop(app: Path):
@@ -271,24 +333,29 @@ def write_statsig(i18n_dir: Path):
 
 
 def patch_whitelist(assets_dir: Path) -> str:
-    """新版多半没有白名单数组——那样直接返回 'skipped'（不是错误）。"""
+    """把 "zh-CN" 注入“支持-locale 数组”——不管它在 index 还是 chunk 里（现版在 chunk）。
+    让渲染层/主进程把 zh-CN 当一等 locale（协商会返回 zh-CN、语言可选），而不是只靠
+    覆盖 en-US 硬撑。幂等：数组已含 zh-CN 则跳过。返回 injected / already / skipped / no-assets。"""
     if not assets_dir:
         return "no-assets"
-    patterns = [
-        r'(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*)\]',
-        r'(\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+)\]',
-        r'(\["en-US"(?:\s*,\s*"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\s*)\]',
-    ]
-    for p in sorted(assets_dir.glob("index-*.js")):
+    cands = _locale_list_js(assets_dir)
+    if not cands:
+        return "skipped"  # 这个版本没有硬编码白名单 → locale 协商是开放的，无需改 JS
+    result = "skipped"
+    for p in cands:
         text = p.read_text(encoding="utf-8", errors="ignore")
-        if '"zh-CN"' in text:
-            return "already"
-        for pat in patterns:
-            new, n = re.subn(pat, r'\1,"zh-CN"]', text, count=1)
-            if n:
-                p.write_text(new, encoding="utf-8")
-                return "injected"
-    return "skipped"  # 新机制：动态 fetch，无需改 JS
+        m = _first_wl_match(text)
+        if not m:
+            continue
+        if '"zh-CN"' in m.group(0):
+            if result == "skipped":
+                result = "already"
+            continue
+        # 切片注入（不用 re.sub 的反向引用，避免被捕获内容里的特殊字符干扰）
+        new = text[:m.start()] + m.group(1) + ',"zh-CN"]' + text[m.end():]
+        p.write_text(new, encoding="utf-8")
+        result = "injected"
+    return result
 
 
 # ------------------------------------------------------------------- 重签名
@@ -490,9 +557,20 @@ def cmd_apply(args):
     write_desktop(staged)
     write_statsig(i18n)
 
-    print("· 处理语言白名单…")
+    print("· 处理语言白名单（扫 chunk，非仅 index）…")
     wl = patch_whitelist(assets) if assets else "no-assets"
     print(f"  白名单: {wl}")
+
+    print("· 自检渲染层 i18n（拦截会导致白屏的损坏）…")
+    problems = verify_frontend(i18n)
+    if problems:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise SystemExit(
+            "汉化文件自检未通过，已中止——你的 Claude 未被改动：\n  - "
+            + "\n  - ".join(problems)
+            + "\n这道关专门拦截换入后会白屏的损坏。请重试；若反复失败，可能是该 Claude "
+              "版本的 i18n 结构变了，去读 references/mechanism.md 自适应排查。")
+    print(f"  自检通过：{len(FRONTEND_LOCALES)} 个 locale 的前端 i18n 齐全且合法")
 
     print("· 重签名…")
     resign(staged)
@@ -519,6 +597,7 @@ def cmd_apply(args):
         "ok": ok,
         "version": app_version(app),
         "whitelist": wl,
+        "frontend_locales": len(FRONTEND_LOCALES),
         "untranslated_remaining": len(untrans),
         "coverage_pct": cov_after,
     }, ensure_ascii=False, indent=2))

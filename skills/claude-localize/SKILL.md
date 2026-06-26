@@ -23,7 +23,7 @@ Claude Desktop 的界面文案分两层：
 2. **必须开启 Claude 的开发者模式**（Settings → Developer）。否则 app 可能加载远程 claude.ai 网页版，本地译文文件根本不会被读取。
 3. **桌面/原生层**：写 `Contents/Resources/zh-CN.json` 和 `.lproj/Localizable.strings`。
 
-新版 Claude 不再有“硬编码语言白名单数组”，所以**通常不需要改 JS**；skill 仍会探测，万一某版本又需要白名单注入会自动处理。
+**关于语言白名单（重要，曾导致白屏）：** 新版 Claude 仍有“支持的 locale 列表”数组（`["en-US","de-DE",…]`），只是从 `index-*.js` **搬进了内容哈希的 chunk**（如 `assets/v1/ccc72bfa9-*.js`）。早期只扫 `index-*.js` 会漏看它、误以为“无需改 JS”，导致 zh-CN 从没被登记成真正的 locale、汉化全靠覆盖 `en-US.json` 硬撑——一旦某机器协商出的 locale 没有对应 i18n 文件就 404、渲染层永不就绪 → **白屏**（详见 `references/mechanism.md` 的“汉化后白屏”）。现在 skill **扫描全部 `*.js`** 找到该数组并注入 `zh-CN`，并为整组中文别名都写好 i18n 文件、换入前自检，从根上杜绝白屏。
 
 因为修改了 app 包内文件会让 macOS 代码签名失效，所以**必须重签名**（macOS 15+ 还需带 hardened runtime + 关闭 library validation，否则改过的 Electron app 无法启动）。这一步脚本已封装。
 
@@ -50,7 +50,7 @@ python3 scripts/patch_macos.py detect
 读 JSON 输出，重点看：
 - `version`：当前 Claude 版本。
 - `i18n_dir` / `assets_dir`：若为 `null`，说明结构变了——**停下，去读 `references/mechanism.md` 自适应排查**，不要硬来。
-- `whitelist.needs_js_patch`：是否还需注入语言白名单（新版一般 `false`）。
+- `whitelist.needs_js_patch`：是否还需把 `zh-CN` 注入“支持 locale 列表”数组。`locale_list_files` 列出命中该数组的 JS（现版在 chunk 里，如 `ccc72bfa9-*.js`），`scanned_js` 是扫描总数。`needs_js_patch:true` 说明找到了数组且缺 zh-CN，apply 会注入；`false` 且 `locale_list_files` 非空表示已含 zh-CN。
 - `coverage`：内置精校译文对当前版本的覆盖率（`pct`）和待翻译数量（`untranslated`）。
 - `patched`：是否已汉化。`has_backup`：是否已有备份。
 

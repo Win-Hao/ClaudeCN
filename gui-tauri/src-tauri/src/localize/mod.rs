@@ -23,8 +23,17 @@ use windows as platform;
 
 /// 目标 locale。若实测发现新版把 zh-CN 归一成别的，改这里。
 pub const LOCALE: &str = "zh-CN";
-/// 中文译文同时写入这些 locale 文件（尤其覆盖 en-US，见 §4.2①）。
-pub const TARGET_LOCALES: [&str; 3] = ["en-US", "zh-CN", "zh"];
+/// 中文别名：渲染层(DW/navigator)或主进程(x3i)可能协商出的所有中文写法。给它们都写好
+/// i18n 文件，任何协商结果都 fetch 得到合法中文、绝不 404 → 杜绝“永不就绪”的白屏。
+#[allow(dead_code)] // mac 走整包备份/还原；windows restore 用它逐个清理别名文件
+pub const ZH_LOCALES: [&str; 9] = [
+    "zh-CN", "zh", "zh-Hans", "zh-Hans-CN", "zh-Hant", "zh-TW", "zh-HK", "zh-MO", "zh-SG",
+];
+/// 中文译文同时写入这些 locale 文件（尤其覆盖 en-US，见 §4.2①）。en-US 必须覆盖，因为
+/// zh-CN 未被登记为 locale 时 app 会把中文一路协商回退到 en-US。
+pub const FRONTEND_LOCALES: [&str; 10] = [
+    "en-US", "zh-CN", "zh", "zh-Hans", "zh-Hans-CN", "zh-Hant", "zh-TW", "zh-HK", "zh-MO", "zh-SG",
+];
 
 // ---------------------------------------------------------------- 对外数据类型
 
@@ -239,29 +248,57 @@ pub fn write_frontend(i18n_dir: &Path, merged: &Map<String, Value>) -> Result<()
     }
     // serde_json 默认 Map=BTreeMap → 键有序（对齐 python sort_keys=True）；UTF-8 原样输出。
     let blob = serde_json::to_string(merged).map_err(|e| format!("序列化译文失败: {e}"))?;
-    for name in TARGET_LOCALES {
-        std::fs::write(i18n_dir.join(format!("{name}.json")), &blob)
-            .map_err(|e| format!("写入 {name}.json 失败: {e}"))?;
-    }
-    // zh-CN/zh 可能被 fetch overrides；en-US 不会被请求 overrides，别动它。
-    for name in ["zh-CN", "zh"] {
-        let ov = i18n_dir.join(format!("{name}.overrides.json"));
-        if !ov.exists() {
-            std::fs::write(&ov, "{}").map_err(|e| format!("写入 {name}.overrides.json 失败: {e}"))?;
-        }
-    }
     let dyn_dir = i18n_dir.join("dynamic");
     let dyn_en = dyn_dir.join("en-US.json");
-    if dyn_dir.exists() && dyn_en.exists() {
-        for name in ["zh-CN", "zh"] {
-            let tgt = dyn_dir.join(format!("{name}.json"));
-            if !tgt.exists() {
-                std::fs::copy(&dyn_en, &tgt)
-                    .map_err(|e| format!("写入 dynamic/{name}.json 失败: {e}"))?;
-            }
+    let has_dyn = dyn_dir.exists() && dyn_en.exists();
+    for name in FRONTEND_LOCALES {
+        std::fs::write(i18n_dir.join(format!("{name}.json")), &blob)
+            .map_err(|e| format!("写入 {name}.json 失败: {e}"))?;
+        if name == "en-US" {
+            // en-US：加载器不请求 overrides；dynamic/en-US.json 是中文回退源，二者都别动。
+            continue;
+        }
+        // overrides 会被加载器叠加在 public 之上：残留的他语 overrides 会把外语/英文顶回
+        // 我们的中文，所以每个中文 locale 的 overrides 一律清成空（也避免 404）。
+        std::fs::write(i18n_dir.join(format!("{name}.overrides.json")), "{}")
+            .map_err(|e| format!("写入 {name}.overrides.json 失败: {e}"))?;
+        // 加载器强制要求 dynamic/{locale}.json（!ok 直接抛错），镜像 en-US 的英文回退。
+        if has_dyn {
+            std::fs::copy(&dyn_en, dyn_dir.join(format!("{name}.json")))
+                .map_err(|e| format!("写入 dynamic/{name}.json 失败: {e}"))?;
         }
     }
     Ok(())
+}
+
+/// 换入前自检：渲染层 i18n 加载器会 fetch 的每个文件都在且是合法 JSON。返回问题列表
+/// （空=OK）。把潜在的“换入后白屏”变成换入前的干净失败（mac staged 会直接中止不动 app）。
+pub fn verify_frontend(i18n_dir: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    let dyn_dir = i18n_dir.join("dynamic");
+    let has_dyn = dyn_dir.join("en-US.json").exists();
+    for name in FRONTEND_LOCALES {
+        let mut targets = vec![i18n_dir.join(format!("{name}.json"))];
+        if has_dyn {
+            targets.push(dyn_dir.join(format!("{name}.json")));
+        }
+        let ov = i18n_dir.join(format!("{name}.overrides.json"));
+        if ov.exists() {
+            targets.push(ov);
+        }
+        for f in targets {
+            let label = f
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !f.exists() {
+                problems.push(format!("缺失 {label}"));
+            } else if let Err(e) = load_json_map(&f) {
+                problems.push(format!("非法 JSON {label}: {e}"));
+            }
+        }
+    }
+    problems
 }
 
 /// statsig 实验文案（若该版本有 statsig 目录）。
@@ -280,40 +317,122 @@ pub fn write_statsig(i18n_dir: &Path, statsig_base: &Path) -> Result<(), String>
     Ok(())
 }
 
-/// 语言白名单自适应（§4.2②）。新版多半没有白名单数组 → 返回 "skipped"（不是错误）。
-pub fn patch_whitelist(assets_dir: &Path) -> String {
-    let patterns = [
-        r#"(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*)\]"#,
-        r#"(\["en-US"(?:,"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+)\]"#,
-        r#"(\["en-US"(?:\s*,\s*"[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})*")+\s*)\]"#,
-    ];
-    let mut index_files: Vec<PathBuf> = match std::fs::read_dir(assets_dir) {
-        Ok(rd) => rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.file_name().map(is_index_js).unwrap_or(false))
-            .collect(),
-        Err(_) => return "no-assets".to_string(),
+// “支持的 locale 列表”数组（渲染层 DW() 协商用）。现版藏在内容哈希 *chunk* 里（实测
+// assets/v1/ccc72bfa9-*.js），**不在 index-*.js**。旧逻辑只扫 index-*.js 会漏掉它 → zh-CN
+// 永不被登记成真 locale、汉化全靠覆盖 en-US 硬撑；某机器协商出没写文件的 locale → i18n
+// 加载器 fetch 404 抛错、被 React-Query 吞掉（无日志）→ isLoaded 永不就绪 → 白屏。故扫全部 *.js。
+const WL_PATTERNS: [&str; 2] = [
+    // 精确匹配当前已知数组（成员/顺序固定时优先命中）
+    r#"(\["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"[^\]]*?)\]"#,
+    // 通用兜底：["en-US","xx-YY",…]（至少 3 个成员，认作 locale 列表而非普通数组）
+    r#"(\["en-US"(?:,"[a-z]{2,3}(?:-[A-Za-z0-9]{2,4})*"){3,}?)\]"#,
+];
+
+/// assets 下所有“含硬编码 locale 数组”的 JS（字节预筛 `["en-US"`）。现版在 chunk 而非
+/// index-*.js，故扫全部 *.js。patch/unpatch 与 Windows 备份都复用它，确保改谁就能还原谁。
+pub fn locale_list_js(assets_dir: &Path) -> Vec<PathBuf> {
+    let needle = b"[\"en-US\"";
+    let mut out: Vec<PathBuf> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(assets_dir) else {
+        return out;
     };
-    index_files.sort();
-    for p in index_files {
-        let Ok(text) = std::fs::read_to_string(&p) else {
-            continue;
-        };
-        if text.contains("\"zh-CN\"") {
-            return "already".to_string();
-        }
-        for pat in patterns {
-            let re = Regex::new(pat).expect("白名单正则应当合法");
-            if re.is_match(&text) {
-                let new = re.replacen(&text, 1, r#"${1},"zh-CN"]"#);
-                if std::fs::write(&p, new.as_ref()).is_ok() {
-                    return "injected".to_string();
-                }
+    let mut files: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|x| x == "js").unwrap_or(false))
+        .collect();
+    files.sort();
+    for p in files {
+        if let Ok(bytes) = std::fs::read(&p) {
+            if bytes.windows(needle.len()).any(|w| w == needle) {
+                out.push(p);
             }
         }
     }
-    "skipped".to_string()
+    out
+}
+
+/// 找到“支持 locale 列表”数组：返回 (整段匹配的起, 止, 不含右括号的捕获组1)。
+fn first_wl_match(text: &str) -> Option<(usize, usize, String)> {
+    for pat in WL_PATTERNS {
+        let re = Regex::new(pat).expect("白名单正则应当合法");
+        if let Some(c) = re.captures(text) {
+            let full = c.get(0).unwrap();
+            let g1 = c.get(1).unwrap().as_str().to_string();
+            return Some((full.start(), full.end(), g1));
+        }
+    }
+    None
+}
+
+/// 把 "zh-CN" 注入“支持 locale 列表”——不管它在 index 还是 chunk 里（现版在 chunk）。
+/// 让渲染层/主进程把 zh-CN 当一等 locale，而不是只靠覆盖 en-US 硬撑。幂等：数组已含则跳过。
+/// 返回 injected / already / skipped / no-assets。
+pub fn patch_whitelist(assets_dir: &Path) -> String {
+    if std::fs::read_dir(assets_dir).is_err() {
+        return "no-assets".to_string();
+    }
+    let cands = locale_list_js(assets_dir);
+    if cands.is_empty() {
+        return "skipped".to_string(); // 这个版本没有硬编码白名单 → 协商开放，无需改 JS
+    }
+    let mut result = "skipped".to_string();
+    for p in cands {
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Some((start, _end, g1)) = first_wl_match(&text) else {
+            continue;
+        };
+        if g1.contains("\"zh-CN\"") {
+            if result == "skipped" {
+                result = "already".to_string();
+            }
+            continue;
+        }
+        // 切片注入：text[..start] + g1 + ,"zh-CN"] + text[end..]（不用反向引用，避免特殊字符干扰）
+        let end = start + g1.len() + 1; // +1 = 原来的 ']'
+        let mut new = String::with_capacity(text.len() + 8);
+        new.push_str(&text[..start]);
+        new.push_str(&g1);
+        new.push_str(r#","zh-CN"]"#);
+        new.push_str(&text[end..]);
+        if std::fs::write(&p, new).is_ok() {
+            result = "injected".to_string();
+        }
+    }
+    result
+}
+
+/// patch_whitelist 的逆操作：从“支持 locale 列表”里移除我们注入的 zh-CN。Windows restore
+/// 用它把 chunk 还原（mac 走整包 ditto 备份，无需此步）。幂等。返回 removed / skipped。
+#[allow(dead_code)] // windows restore 专用；mac 整包还原不需要
+pub fn unpatch_whitelist(assets_dir: &Path) -> String {
+    let mut result = "skipped".to_string();
+    for p in locale_list_js(assets_dir) {
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Some((start, end, _g1)) = first_wl_match(&text) else {
+            continue;
+        };
+        let matched = &text[start..end];
+        if !matched.contains("\"zh-CN\"") {
+            continue;
+        }
+        let fixed = matched.replace(r#","zh-CN""#, "").replace(r#""zh-CN","#, "");
+        if fixed == matched {
+            continue;
+        }
+        let mut new = String::with_capacity(text.len());
+        new.push_str(&text[..start]);
+        new.push_str(&fixed);
+        new.push_str(&text[end..]);
+        if std::fs::write(&p, new).is_ok() {
+            result = "removed".to_string();
+        }
+    }
+    result
 }
 
 // ---------------------------------------------------------------- locale 配置
@@ -501,10 +620,32 @@ mod tests {
         // zh-CN / zh 也写了
         assert!(tmp.join("zh-CN.json").exists());
         assert!(tmp.join("zh.json").exists());
-        // overrides 占位
+        // 中文别名也都写了（防协商出 zh 变体时 fetch 404 → 白屏）
+        assert!(tmp.join("zh-Hans.json").exists());
+        assert!(tmp.join("zh-TW.json").exists());
+        assert!(tmp.join("zh-Hans-CN.json").exists());
+        // overrides 占位（清空，防残留他语 overrides 把外语顶回中文）
         assert_eq!(std::fs::read_to_string(tmp.join("zh-CN.overrides.json")).unwrap(), "{}");
+        assert_eq!(std::fs::read_to_string(tmp.join("zh-Hans.overrides.json")).unwrap(), "{}");
         // 标记
         assert!(is_patched(&tmp));
+        // 自检通过（所有前端 locale 文件齐全且合法）
+        assert!(verify_frontend(&tmp).is_empty(), "verify 应通过: {:?}", verify_frontend(&tmp));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn verify_frontend_flags_broken_files() {
+        let tmp = std::env::temp_dir().join(format!("claudecn-test-verify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("en-US.json"), r#"{"a":"Apple"}"#).unwrap();
+        write_frontend(&tmp, &obj(json!({"a": "苹果"}))).unwrap();
+        assert!(verify_frontend(&tmp).is_empty());
+        // 破坏一个文件 → 自检必须抓到
+        std::fs::write(tmp.join("zh-CN.json"), "{ not json").unwrap();
+        let problems = verify_frontend(&tmp);
+        assert!(problems.iter().any(|p| p.contains("zh-CN.json")), "应报告 zh-CN.json: {problems:?}");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -543,17 +684,25 @@ mod tests {
     }
 
     #[test]
-    fn whitelist_injects_into_array_and_is_idempotent() {
+    fn whitelist_injects_into_chunk_not_just_index_and_roundtrips() {
         let tmp = std::env::temp_dir().join(format!("claudecn-test-wl-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        let js = tmp.join("index-abc123.js");
-        std::fs::write(&js, r#"var langs=["en-US","de-DE","fr-FR"];console.log(1)"#).unwrap();
+        // 关键：数组在 *chunk* 里（文件名非 index-*.js）——旧逻辑只扫 index 会漏掉、白屏根因
+        let js = tmp.join("ccc72bfa9-D0cgUURt.js");
+        let arr = r#"["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES","it-IT","hi-IN","pt-BR","id-ID"]"#;
+        let orig = format!("var PW={arr};function DW(){{}}");
+        std::fs::write(&js, &orig).unwrap();
         assert_eq!(patch_whitelist(&tmp), "injected");
         let after = std::fs::read_to_string(&js).unwrap();
-        assert!(after.contains(r#""zh-CN"]"#));
-        // 再跑一次：已有 zh-CN → already
+        assert!(after.contains(r#""id-ID","zh-CN"]"#), "应在末尾注入 zh-CN: {after}");
+        assert_eq!(after.matches("\"zh-CN\"").count(), 1, "只注入一次");
+        // 幂等：已含 zh-CN → already
         assert_eq!(patch_whitelist(&tmp), "already");
+        // 逆操作：unpatch 把数组还原成原样
+        assert_eq!(unpatch_whitelist(&tmp), "removed");
+        assert_eq!(std::fs::read_to_string(&js).unwrap(), orig);
+        assert_eq!(unpatch_whitelist(&tmp), "skipped"); // 已无 zh-CN
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -563,7 +712,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("index-x.js"), "const a=fetch(`/i18n/${loc}.json`)").unwrap();
-        // 新机制：动态 fetch，无白名单数组 → skipped（不是错误）
+        // 没有 ["en-US" 数组 → skipped（不是错误）
         assert_eq!(patch_whitelist(&tmp), "skipped");
         let _ = std::fs::remove_dir_all(&tmp);
     }

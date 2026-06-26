@@ -11,7 +11,7 @@ export default function Topbar() {
           </span>
           <span className="right">
             <span><span className="pulse" />完全免费 · 开源</span>
-            <span>v2.0.0 · zh-CN</span>
+            <span>v2.0.1 · zh-CN</span>
           </span>
         </div>
       </div>

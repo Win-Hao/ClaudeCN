@@ -46,9 +46,9 @@
 ## 版本演化（已知）
 
 - **~v1.6608.0 及更早**：前端 `index-*.js` 里有**硬编码语言白名单数组** `["en-US","de-DE",...]`，必须往里注入 `"zh-CN"` 该语言才会被加载/可选。这是当年最易随版本失效的一步。
-- **v1.15200.0（2026-06 实测）**：白名单数组**已移除**，改为按 locale 动态 fetch（`/i18n/{e}.json` + `/i18n/dynamic/{e}.json` + `/i18n/{e}.overrides.json`）。`index.js` 中 `"zh-CN"` 字面量为 0，`detect` 的 `needs_js_patch` 为 `false`——**无需改 JS**。新增了 `i18n/dynamic/` 子目录，i18n 不再 zstd 压缩（明文 .json）。locale 归一化映射里有 `"zh-cn":"zh"`，但前端 i18n 实际用的是 `localeOverride ?? fallback` 即原始 locale，所以文件名仍用 `zh-CN.json`、config 仍设 `zh-CN`。
+- **v1.15200.0（2026-06 复核，修正旧结论）**：白名单数组**并没有移除，只是搬进了内容哈希的 chunk**（实测在 `assets/v1/ccc72bfa9-*.js`），不在 `index-*.js` 里。旧逻辑“只扫 `index-*.js`”因此**漏看了它**，`detect` 误报 `needs_js_patch:false`、`already_has_zh:false`——这是一个真实盲点（见下方“汉化后白屏”）。该数组形如 `["en-US","de-DE",…,"id-ID"]`（无 zh-CN），是渲染层 locale 协商函数 `DW()` 的“支持列表”：**请求的 locale 不在其中就回退到 `RW="en-US"`**。所以中文能显示，全靠我们把中文写进了 `en-US.json`、再让协商一路退回 en-US——一种“硬撑”，不是把 zh-CN 当成真正的 locale。同期前端确实改为按 locale 动态 fetch（`/i18n/{e}.json` + `/i18n/dynamic/{e}.json` + `/i18n/{e}.overrides.json`），新增 `i18n/dynamic/` 子目录、明文 .json（不再 zstd）。
 
-脚本对两代机制都兼容：`patch_whitelist` 命中数组就注入、没有就 `skipped`（不报错）。
+脚本现在对两代机制都兼容且**扫描全部 `*.js`**（不仅 `index-*.js`）：命中“支持列表”数组就把 `zh-CN` 注入进去（`detect.whitelist.locale_list_files` 会列出命中文件、`scanned_js` 是扫描总数），让 zh-CN 成为一等 locale；没有数组就 `skipped`（不报错）。
 
 ## 排查清单
 
@@ -61,6 +61,19 @@
 3. 读 `index-*.js` 看 i18n 加载那段（搜 `i18n_public` 或 ``fetch(`/i18n/``），确认它用的 locale 变量到底取自哪、有没有把 `zh-CN` 归一成别的（如 `zh`）。如果归一成 `zh`，把 `LOCALE` 改成 `zh` 并相应命名文件。
 4. 若用户登录了账号、服务端语言覆盖了本地：让用户在 Claude 内开**开发者模式**（Settings → Developer）。
 5. 某些版本可能又引入了"可选语言列表"门槛：在 `index.js` 里搜语言相关数组，必要时恢复白名单注入。
+
+**汉化后白屏（窗口打开但内容全白，且日志里什么都没有）：** ← 2026-06 新记载
+这是“窗口起来了、但渲染层 React 没挂载”，跟 error 163（根本起不来）是两回事。根因是**locale 解析失败被静默吞掉**：
+- 渲染层用 `react-intl`，i18n 由一个 React-Query 加载器拉取：并行 `fetch` `/i18n/{loc}.json`、`/i18n/dynamic/{loc}.json`、`/i18n/{loc}.overrides.json`，**只要 public 或 dynamic 返回非 200 就 `throw`**；前两个文件的 `.json()` 解析失败同样 `throw`。
+- 当存在 `localeOverride` 且这个查询出错时，加载器会 `bail`、`isLoaded` 永远不翻 true → 整个 app 停在“未就绪” → 白屏。错误被 React-Query 吞掉，所以 `main.log` 里**看不到任何报错**（这就是“没有记载出来”）。
+- `{loc}` 来自 `localeOverride ?? locale`，由 `DW()` 拿系统语言/`navigator.languages`/`config.locale` 去“支持列表”里协商。**支持列表不含 zh-CN**（见上节，它藏在 chunk 里、旧逻辑没注入），所以中文机器常被退回 en-US；但只要某台机器协商出一个我们**没写文件**的 locale（如 `zh-Hant`、某账号/系统语言变体，或 Claude 自动更新后 chunk 布局变了），那条 fetch 就 404 → 抛错 → 白屏。这正是“作者没遇到、个别用户遇到”的原因。
+
+**修复（已落地到脚本，无需手动）：**
+1. `patch_whitelist` 现在扫**全部 `*.js`**、把 `zh-CN` 注入“支持列表”数组（chunk 里也注入），让 zh-CN 成为一等 locale。
+2. `write_frontend` 现在为 `en-US` + 一整组中文别名（`zh-CN/zh/zh-Hans/zh-Hans-CN/zh-Hant/zh-TW/zh-HK/zh-MO/zh-SG`）都写好 `public + dynamic + overrides({})`，**任何协商结果都 fetch 得到合法中文、绝不 404**。
+3. `apply` 换入前跑 `verify_frontend` 自检：任一文件缺失/非法 JSON 就**中止且不改动 app**，把“换入后白屏”变成“换入前干净失败”。
+
+**已经白屏的用户怎么救：** 直接 `python3 scripts/patch_macos.py restore`（弹一次密码即恢复英文原版并重启）；备份没了也不卡——从 https://claude.ai/download 重装即可，聊天记录/登录在 `~/Library/Application Support/Claude/` 不随重装丢。恢复后用新版脚本重跑汉化即可。
 
 **汉化后 Claude 无法启动（`open` 报 error 163 / "Launchd job spawn failed"）：**
 AMFI 在启动时拒绝了重签名后的 app，几乎都是 entitlements 没剥干净。确认 `resign()` 剥掉了 `keychain-access-groups` 与所有 `com.apple.developer.*`：`codesign -d --entitlements - --xml /Applications/Claude.app/Contents/MacOS/Claude` 看是否残留。两个易误导的点：① `codesign --verify` 显示 "valid / satisfies its Designated Requirement" 只代表签名结构没坏，**不代表能启动**，启动与否由 AMFI 决定；② `spctl -a` 显示 rejected 是正常的（ad-hoc/自签本就过不了 Gatekeeper 评估），只要 app 没有 `com.apple.quarantine` 属性就不影响本地启动。必要时 `restore` 后重来。
