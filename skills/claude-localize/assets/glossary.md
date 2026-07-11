@@ -22,6 +22,8 @@
 | Pro / Max（套餐名） | 保留英文；Pro plan→Pro 计划、Max plan→Max 计划 |
 | Free / Team / Enterprise（套餐名） | 免费 / 团队 / 企业 |
 | Claude Design | Claude Design（保留英文） |
+| Composer（撰写区 UI 元素） | 撰写框；「Composer mode」「Composer」模式名保留英文 |
+| Agent / agents | 智能体 |
 | Model | 模型 |
 | Conversation | 对话 |
 | New chat | 新聊天 |
