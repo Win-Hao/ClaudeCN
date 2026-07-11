@@ -27,7 +27,7 @@
 
 ## 翻译覆盖率
 
-- 前端 UI 翻译：**18,000+ 条**精校译文，完整覆盖当前 Claude 的全部 en-US key（~100%）
+- 前端 UI 翻译：**20,000+ 条**精校译文，完整覆盖当前 Claude 的全部 en-US key（~100%）
 - 桌面菜单、statsig 实验文案、原生 `Localizable.strings` 一并汉化
 - 未翻译的新增 key 自动回退英文（合并时以 en-US 为底，绝不出现哈希乱码）
 - 覆盖 Cowork、Connectors、Claude Code、隐私设置等全部新功能
