@@ -1,6 +1,6 @@
 {
   "name": "claudecn-gui",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "ClaudeCN — Claude Desktop 中文汉化工具（Tauri v2 重做版）",
   "type": "module",
   "scripts": {

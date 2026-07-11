@@ -1,6 +1,6 @@
 [package]
 name = "claudecn"
-version = "2.0.1"
+version = "2.0.2"
 description = "ClaudeCN — Claude Desktop 中文汉化工具"
 authors = ["ClaudeCN"]
 edition = "2021"
