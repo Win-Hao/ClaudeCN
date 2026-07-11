@@ -16,7 +16,12 @@
 | Settings | 设置 |
 | Organization | 组织 |
 | Account | 帐号 |
-| Usage | 用法 |
+| Usage | 用量（额度/限额/消耗语境，设置页 Usage 标签同；「how to use」义才用「用法」） |
+| Usage credits | 用量额度 |
+| Usage limits | 用量限额 |
+| Pro / Max（套餐名） | 保留英文；Pro plan→Pro 计划、Max plan→Max 计划 |
+| Free / Team / Enterprise（套餐名） | 免费 / 团队 / 企业 |
+| Claude Design | Claude Design（保留英文） |
 | Model | 模型 |
 | Conversation | 对话 |
 | New chat | 新聊天 |
