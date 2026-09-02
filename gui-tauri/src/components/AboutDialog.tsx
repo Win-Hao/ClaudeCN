@@ -74,7 +74,8 @@ export function AboutDialog({
             </div>
             <ul className="space-y-1.5 text-[12px]" style={{ color: "var(--fg-2)", lineHeight: 1.55 }}>
               <li>· 汉化前请在 Claude 内开启<b>开发者模式</b>（Settings → Developer），否则登录账号后服务端语言可能覆盖本地汉化。</li>
-              <li>· 汉化期间 Claude 的自动更新会被跳过。想升级：先「恢复原版」→ 让 Claude 更新 → 再汉化。</li>
+              <li>· 汉化不影响 Claude 自动更新；Claude 更新后界面会变回英文，重新点一次「一键汉化」即可（会按新版本重新备份）。</li>
+              <li>· 官方账号登录后的 claude.ai 页面由页面层词典实时翻译（macOS，v2.1 新增、实验性）；对话正文、代码块、输入框不会被改动。</li>
               <li>· 首次汉化后系统可能要你重新授权一次屏幕录制/麦克风等权限（重签名改了签名身份）。</li>
             </ul>
 

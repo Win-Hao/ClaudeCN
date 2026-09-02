@@ -12,14 +12,14 @@ export default function Hero() {
         <div className="hero-copy">
           <span className="label" data-reveal="">汉化工具 · macOS / Windows</span>
           <h1 className="display" data-reveal="">把 Claude Desktop，<br />变成<em>中文</em>版<span className="dot">.</span></h1>
-          <p className="lead" data-reveal="">ClaudeCN 一键把 Claude Desktop 的界面、菜单、原生弹窗全部汉化为简体中文 —— 20,000+ 条精校译文、约 100% 覆盖；不改任何核心功能，随时一键恢复英文原版。</p>
+          <p className="lead" data-reveal="">ClaudeCN 一键把 Claude Desktop 的界面、菜单、原生弹窗全部汉化为简体中文 —— 29,000+ 条精校译文、约 100% 覆盖；不改任何核心功能，随时一键恢复英文原版。</p>
           <div className="hero-actions" data-reveal="" style={{ flexWrap: 'wrap' }}>
             <a className="btn btn-primary" href={dmg} download>下载 macOS 版 <span className="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span></a>
             <a className="btn btn-ghost" href={DOWNLOAD_WIN} target="_blank" rel="noopener noreferrer">下载 Windows 版 <span className="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></svg></span></a>
             <StarButton />
           </div>
           <div className="hero-stats" data-reveal="">
-            <span className="stat"><span className="ring coral">中</span><span className="stat-label">20,000+ 译文<b>约 100% 覆盖</b></span></span>
+            <span className="stat"><span className="ring coral">中</span><span className="stat-label">29,000+ 译文<b>约 100% 覆盖</b></span></span>
             <span className="stat"><span className="ring">⇄</span><span className="stat-label">一键切换<b>汉化 / 恢复</b></span></span>
             <span className="stat"><span className="ring solid">2</span><span className="stat-label">双平台<b>macOS + Windows</b></span></span>
           </div>

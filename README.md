@@ -19,6 +19,7 @@
 ## 功能
 
 - **一键汉化** Claude Desktop 界面（前端 UI、桌面菜单、原生弹窗全覆盖）
+- **官方账号登录也能汉化**（v2.1 新增，macOS，实验性）：登录 Anthropic 官方账号后主窗口加载的是远端 claude.ai 页面，本地译文碰不到，ClaudeCN 会在页面层用同一份词表实时翻译
 - **一键恢复** 英文原版（完整备份，安全无损）
 - 自动检测 Claude 安装状态、版本、是否已汉化、有无备份
 - 实时进度反馈 +「复制日志」便于反馈
@@ -27,7 +28,7 @@
 
 ## 翻译覆盖率
 
-- 前端 UI 翻译：**20,000+ 条**精校译文，完整覆盖当前 Claude 的全部 en-US key（~100%）
+- 前端 UI 翻译：**29,000+ 条**精校译文，完整覆盖当前 Claude 的全部 en-US key（~100%）
 - 桌面菜单、statsig 实验文案、原生 `Localizable.strings` 一并汉化
 - 未翻译的新增 key 自动回退英文（合并时以 en-US 为底，绝不出现哈希乱码）
 - 覆盖 Cowork、Connectors、Claude Code、隐私设置等全部新功能
@@ -66,8 +67,10 @@
 4. Claude Desktop 自动重启为中文界面
 5. 如需恢复，点「**恢复英文原版**」即可还原（含防降级保护）
 
-> **关于自动更新**：汉化期间 Claude 自身的自动更新会被跳过（签名校验）。想升级 Claude：先「恢复英文原版」→ 让 Claude 更新 → 再汉化。
+> **关于自动更新**：汉化不影响 Claude 自身的自动更新（v2.1 起 macOS 重签名保留了官方更新器可识别的签名要求）。Claude 更新后界面会变回英文，打开 ClaudeCN 重新点一次「一键汉化」即可，会按新版本重新备份。
 > ClaudeCN **自己**的更新是应用内自动的，与上面无关。
+>
+> **关于官方账号登录**：用 Anthropic 官方账号登录后，主窗口加载的是远端 claude.ai 页面，本地译文碰不到。v2.1 起 macOS 会在页面层用同一份词表实时翻译（登录页已实测；登录后的界面属首次发布，标为实验性，欢迎反馈）。对话正文、代码块、输入框一律不动。
 
 ---
 
@@ -101,7 +104,8 @@ bash scripts/release-mac.sh      # 发布到 GitHub Releases
 3. 汉化桌面菜单层（`Contents/Resources/<locale>.json` + `Localizable.strings`）
 4. 语言白名单：旧版 Claude 在 `index-*.js` 里有硬编码语言数组时注入 `zh-CN`；新版改为动态加载，自动跳过
 5. 把语言偏好写进 Claude 所有数据目录的 `config.json`（含接入第三方/自定义模型时用的 `Claude-3p`）
-6. **macOS 额外**：ad-hoc 重签名——剥掉绑定 Team ID/Apple 授权的 entitlements（否则新版 macOS 启动拒绝），保留摄像头/麦克风/截屏等能力。**Windows 无需签名**，提权直接改文件
+6. **macOS 额外（官方账号模式）**：在 `app.asar` 主进程的 `dom-ready` 钩子里注入一段页面脚本（标记包裹、可重复执行），把「英文 → 中文」词典送进远端 claude.ai 页面做 DOM 层翻译；随后重建 asar、重算 `ElectronAsarIntegrity` 并同步进 `Info.plist`（官方包开着 asar 完整性校验，不同步就启动即崩），再清掉对应的 V8 编译缓存。这一步失败只记日志，本地界面汉化不受影响
+7. **macOS 额外**：ad-hoc 重签名——剥掉绑定 Team ID/Apple 授权的 entitlements（否则新版 macOS 启动拒绝），保留摄像头/麦克风/截屏等能力；外层 app 用 identifier 级 designated requirement，官方自动更新仍能正常安装。**Windows 无需签名**，提权直接改文件
 
 ## 安全性
 
