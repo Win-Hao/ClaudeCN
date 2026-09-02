@@ -71,6 +71,11 @@
 | Upgrade | 升级 |
 | Manage | 管理 |
 | Permissions | 权限 |
+| Worktree | 工作树 |
+| Routine / Routines（Claude Code 定时任务功能） | 例程 |
+| Pooled budget / Shared budget | 共享预算 |
+| Remote Control | 远程控制 |
+| Simulator / Emulator | 模拟器；Attach simulator / emulator → 连接模拟器，Detach → 断开模拟器 |
 
 ## 保留英文（不要翻译）
 
