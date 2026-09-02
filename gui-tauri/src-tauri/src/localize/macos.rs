@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use super::assets;
+use super::online;
 use super::{
     backup_dir, build_merged, coverage, en_source, existing_backup, find_assets_dir,
     find_i18n_dir, is_patched, load_json_map, patch_whitelist, remove_locale_config, report,
@@ -25,6 +26,8 @@ const STRIP_KEYS: [&str; 3] = [
     "com.apple.developer.team-identifier",
 ];
 const STRIP_PREFIXES: [&str; 1] = ["com.apple.developer."];
+/// Claude Desktop 的 bundle identifier；重签时用它做 identifier 级 designated requirement。
+pub const BUNDLE_ID: &str = "com.anthropic.claudefordesktop";
 const REQUIRED_CS: [&str; 4] = [
     "com.apple.security.cs.allow-jit",
     "com.apple.security.cs.allow-unsigned-executable-memory",
@@ -132,8 +135,10 @@ pub fn filter_entitlements(ent: &plist::Dictionary) -> plist::Dictionary {
 }
 
 /// ad-hoc + hardened runtime 重签整个 app。先改 ElectronTeamID，写过滤后的 entitlements，
-/// 去签名再 force 重签。
-fn resign(app: &Path) -> Result<(), String> {
+/// 去签名再 force 重签。`designated_requirement` 形如 `identifier "com.anthropic.claudefordesktop"`：
+/// ad-hoc 默认的 DR 是 cdhash 级别，官方更新器（ShipIt）校验新包时对不上就装不进去；
+/// 改成 identifier 级别后官方自动更新可以正常安装。传 None 保持旧行为。
+pub(crate) fn resign(app: &Path, designated_requirement: Option<&str>) -> Result<(), String> {
     let ent = filter_entitlements(&extract_entitlements(&app.join("Contents/MacOS/Claude")));
 
     // ElectronTeamID 与 ad-hoc 的 TeamIdentifier 对齐（"not set"）。须在签名前改。
@@ -161,14 +166,80 @@ fn resign(app: &Path) -> Result<(), String> {
         .arg(app)
         .output()
         .map_err(|e| format!("codesign 执行失败: {e}"))?;
-    let _ = std::fs::remove_dir_all(&tmp);
     if !signed.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
         return Err(format!(
             "重签名失败: {}",
             String::from_utf8_lossy(&signed.stderr)
         ));
     }
+    // DR 只能加在外层 app 上：带 --deep 时 codesign 会把同一条 DR 套到所有嵌套 helper /
+    // framework，它们的 identifier 各不相同，验证必挂（"nested code is modified or invalid"）。
+    // 所以第二遍不带 --deep，只重签最外层，嵌套签名原样保留。
+    if let Some(dr) = designated_requirement {
+        let outer = Command::new("codesign")
+            .args(["--force", "--options", "runtime", "--entitlements"])
+            .arg(&entp)
+            .arg("-r")
+            .arg(format!("=designated => {dr}"))
+            .args(["--sign", "-"])
+            .arg(app)
+            .output()
+            .map_err(|e| format!("codesign 执行失败: {e}"))?;
+        if !outer.status.success() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(format!(
+                "外层 DR 重签失败: {}",
+                String::from_utf8_lossy(&outer.stderr)
+            ));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
     Ok(())
+}
+
+// ---------------------------------------------------------------- asar 完整性
+
+/// 把 Info.plist 的 `ElectronAsarIntegrity → Resources/app.asar → hash` 改成新 asar 头部
+/// JSON 的 sha256。官方包的 EnableEmbeddedAsarIntegrityValidation fuse 是开着的：asar 重建后
+/// 不同步这里，应用启动即崩。
+pub(crate) fn write_asar_integrity(app: &Path, header_sha256: &str) -> Result<(), String> {
+    let info = app.join("Contents/Info.plist");
+    let PlistValue::Dictionary(mut d) =
+        PlistValue::from_file(&info).map_err(|e| format!("读 Info.plist 失败: {e}"))?
+    else {
+        return Err("Info.plist 顶层不是字典".into());
+    };
+    let mut integ = match d.remove("ElectronAsarIntegrity") {
+        Some(PlistValue::Dictionary(m)) => m,
+        _ => plist::Dictionary::new(),
+    };
+    let mut entry = match integ.remove("Resources/app.asar") {
+        Some(PlistValue::Dictionary(m)) => m,
+        _ => plist::Dictionary::new(),
+    };
+    entry.insert("algorithm".into(), PlistValue::String("SHA256".into()));
+    entry.insert("hash".into(), PlistValue::String(header_sha256.into()));
+    integ.insert("Resources/app.asar".into(), PlistValue::Dictionary(entry));
+    d.insert("ElectronAsarIntegrity".into(), PlistValue::Dictionary(integ));
+    PlistValue::Dictionary(d)
+        .to_file_xml(&info)
+        .map_err(|e| format!("写 Info.plist 失败: {e}"))
+}
+
+/// 读出 Info.plist 里当前记录的 app.asar 头部哈希。
+#[allow(dead_code)] // 测试与诊断用
+pub(crate) fn read_asar_integrity(app: &Path) -> Option<String> {
+    let PlistValue::Dictionary(d) = PlistValue::from_file(app.join("Contents/Info.plist")).ok()? else {
+        return None;
+    };
+    d.get("ElectronAsarIntegrity")?
+        .as_dictionary()?
+        .get("Resources/app.asar")?
+        .as_dictionary()?
+        .get("hash")?
+        .as_string()
+        .map(str::to_string)
 }
 
 // ---------------------------------------------------------------- 提权换入
@@ -347,8 +418,52 @@ pub fn apply(app: &AppHandle) -> Result<LocalizeResult, String> {
     }
     report(app, format!("  自检通过：{} 个 locale 前端文件齐全且合法", FRONTEND_LOCALES.len()));
 
-    report(app, "重签名（ad-hoc）…");
-    resign(&staged)?;
+    // OAuth 模式：官方账号登录后主窗口是远端 claude.ai，本地 i18n 碰不到，得往主进程的
+    // dom-ready 钩子里注入 DOM 层翻译脚本。失败不中止：本地界面汉化照常，只是登录后的页面保持英文。
+    report(app, "安装在线页面汉化（官方账号登录后的 claude.ai 界面）…");
+    let mut dict = online::build_dictionary(&en, &base);
+    let n_frontend = dict.len();
+    // 桌面壳菜单与 statsig 文案只补缺；它们的英文源在 staged app 里未被改动。
+    let n_desktop = online::extend_dictionary(
+        &mut dict,
+        &staged.join("Contents/Resources/en-US.json"),
+        &assets::desktop_base(app),
+    )
+    .unwrap_or_else(|e| {
+        report(app, format!("  桌面菜单词典跳过：{e}"));
+        0
+    });
+    let n_statsig = online::extend_dictionary(
+        &mut dict,
+        &i18n.join("statsig/en-US.json"),
+        &assets::statsig_base(app),
+    )
+    .unwrap_or_else(|e| {
+        report(app, format!("  statsig 词典跳过：{e}"));
+        0
+    });
+    report(app, format!("  在线词典：前端 {n_frontend} 条 + 桌面菜单补 {n_desktop} 条 + statsig 补 {n_statsig} 条"));
+    let page_script = online::build_page_script(&dict, &online::OnlineConfig::default());
+    match online::install_into_asar(&staged.join("Contents/Resources/app.asar"), &page_script) {
+        Ok((rep, header_sha)) => {
+            write_asar_integrity(&staged, &header_sha)?;
+            report(
+                app,
+                format!(
+                    "  词典 {} 条；注入 {}（接收者 {}）；清理编译缓存 {} 个",
+                    dict.len(),
+                    rep.point.file,
+                    rep.point.hook.receiver,
+                    rep.removed_caches.len()
+                ),
+            );
+        }
+        Err(e) => report(app, format!("  ⚠️ 未安装在线页面汉化（本地界面汉化不受影响）：{e}")),
+    }
+
+    // identifier 级 DR：官方自动更新仍可安装；更新后重跑一次汉化即可，不再把用户锁在旧版本。
+    report(app, "重签名（ad-hoc，保留官方自动更新）…");
+    resign(&staged, Some(&format!("identifier \"{BUNDLE_ID}\"")))?;
     let _ = Command::new("xattr")
         .args(["-dr", "com.apple.quarantine"])
         .arg(&staged)
@@ -561,7 +676,7 @@ mod tests {
         );
 
         // 重签名
-        resign(&staged).expect("重签名应成功");
+        resign(&staged, None).expect("重签名应成功");
 
         // 签名结构有效
         let verify = Command::new("codesign")
@@ -595,5 +710,223 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
         println!("✅ 真实 app 汉化流水线（除提权换入外）全部通过");
+    }
+
+    #[test]
+    fn write_and_read_asar_integrity_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!("claudecn-plist-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let app = tmp.join("Fake.app");
+        std::fs::create_dir_all(app.join("Contents")).unwrap();
+        let mut asar_entry = plist::Dictionary::new();
+        asar_entry.insert("algorithm".into(), PlistValue::String("SHA256".into()));
+        asar_entry.insert("hash".into(), PlistValue::String("old".into()));
+        let mut integ = plist::Dictionary::new();
+        integ.insert("Resources/app.asar".into(), PlistValue::Dictionary(asar_entry));
+        let mut root = plist::Dictionary::new();
+        root.insert("CFBundleIdentifier".into(), PlistValue::String(BUNDLE_ID.into()));
+        root.insert("ElectronAsarIntegrity".into(), PlistValue::Dictionary(integ));
+        PlistValue::Dictionary(root).to_file_xml(app.join("Contents/Info.plist")).unwrap();
+
+        assert_eq!(read_asar_integrity(&app).as_deref(), Some("old"));
+        write_asar_integrity(&app, "deadbeef").unwrap();
+        assert_eq!(read_asar_integrity(&app).as_deref(), Some("deadbeef"));
+        // 其他键保留
+        let PlistValue::Dictionary(d) = PlistValue::from_file(app.join("Contents/Info.plist")).unwrap() else { panic!() };
+        assert_eq!(d.get("CFBundleIdentifier").and_then(|v| v.as_string()), Some(BUNDLE_ID));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 端到端：拷贝官方 Claude.app → 在 asar 主进程 dom-ready 处理器里注入一条“写标记文件”
+    /// 语句 → 重建 asar、更新 Info.plist 完整性哈希、ad-hoc 重签（identifier 级 DR）→
+    /// 用独立数据目录启动 → 等标记文件出现。证明：定位正确、asar 重建后 Electron 完整性
+    /// 校验通过、删掉的编译缓存不会抢先加载旧字节码。不动用户真实安装、无需密码、无需登录。
+    /// 用法：`CLAUDECN_E2E_APP=/path/to/Claude.app cargo test -- --ignored online_hook --nocapture`
+    #[test]
+    #[ignore]
+    fn real_app_online_hook_launches() {
+        use super::super::asar::Asar;
+        use super::super::inject;
+
+        let app = std::env::var("CLAUDECN_E2E_APP")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| find_app(None));
+        let Some(app) = app else {
+            eprintln!("跳过：未指定 CLAUDECN_E2E_APP 且本机未安装 Claude.app");
+            return;
+        };
+        let tmp = std::env::temp_dir().join(format!("claudecn-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let staged = tmp.join("Claude.app");
+        let cp = Command::new("cp").arg("-R").arg(&app).arg(&staged).output().unwrap();
+        assert!(cp.status.success(), "cp 失败: {}", String::from_utf8_lossy(&cp.stderr));
+        let _ = Command::new("xattr").args(["-dr", "com.apple.quarantine"]).arg(&staged).output();
+
+        let marker = tmp.join("hook-ran.txt");
+        let marker_lit = serde_json::to_string(marker.to_string_lossy().as_ref()).unwrap();
+        let asar_path = staged.join("Contents/Resources/app.asar");
+        let old_hash = read_asar_integrity(&staged).expect("官方包应带 ElectronAsarIntegrity");
+
+        let mut ar = Asar::open(&asar_path).expect("解析 app.asar");
+        let report = inject::install(&mut ar, &|h| {
+            format!(
+                "require(\"fs\").writeFileSync({marker_lit},String(Date.now()));{}",
+                inject::execute_in_page(&h.receiver, "void 0")
+            )
+        })
+        .expect("定位并注入");
+        println!(
+            "注入点: {} @{} 接收者={} 删缓存={:?}",
+            report.point.file, report.point.hook.match_start, report.point.hook.receiver, report.removed_caches
+        );
+        let new_asar = tmp.join("app.asar.new");
+        let save = ar.save_to(&new_asar).expect("重建 asar");
+        std::fs::rename(&new_asar, &asar_path).unwrap();
+        assert_ne!(save.header_sha256, old_hash);
+        assert!(Asar::open(&asar_path).is_ok(), "重建后的 asar 应可再次解析");
+
+        write_asar_integrity(&staged, &save.header_sha256).unwrap();
+        assert_eq!(read_asar_integrity(&staged).as_deref(), Some(save.header_sha256.as_str()));
+        resign(&staged, Some(&format!("identifier \"{BUNDLE_ID}\""))).expect("重签名");
+        let verify = Command::new("codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(&staged)
+            .output()
+            .unwrap();
+        assert!(verify.status.success(), "codesign --verify: {}", String::from_utf8_lossy(&verify.stderr));
+        let dr = Command::new("codesign").args(["-d", "-r", "-"]).arg(&staged).output().unwrap();
+        let dr_txt = String::from_utf8_lossy(&dr.stderr).to_string() + &String::from_utf8_lossy(&dr.stdout);
+        assert!(dr_txt.contains(&format!("identifier \"{BUNDLE_ID}\"")), "DR 应为 identifier 级: {dr_txt}");
+
+        let profile = tmp.join("profile");
+        let mut child = Command::new(staged.join("Contents/MacOS/Claude"))
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("启动 Claude");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(40);
+        let mut ran = false;
+        while std::time::Instant::now() < deadline {
+            if marker.exists() {
+                ran = true;
+                break;
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("Claude 提前退出（{status}）：多半是 asar 完整性或签名没过");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = Command::new("pkill")
+            .arg("-f")
+            .arg(format!("user-data-dir={}", profile.display()))
+            .output();
+        let content = std::fs::read_to_string(&marker).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(ran, "40 秒内标记文件未出现：dom-ready 注入未执行");
+        println!("✅ 注入语句在真实 app 的 dom-ready 里执行了（标记时间戳 {content}）");
+    }
+
+    /// 端到端二：注入真实的页面翻译脚本，在未登录的 claude.ai 登录页上验证脚本跑通、
+    /// 词典命中，并把统计写回标记文件。
+    /// 用法：`CLAUDECN_E2E_APP=/path/to/Claude.app cargo test -- --ignored online_translation --nocapture`
+    #[test]
+    #[ignore]
+    fn real_app_online_translation_on_login_page() {
+        use super::super::asar::Asar;
+        use super::super::{inject, online};
+
+        let app = std::env::var("CLAUDECN_E2E_APP")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| find_app(None));
+        let Some(app) = app else {
+            eprintln!("跳过：未指定 CLAUDECN_E2E_APP 且本机未安装 Claude.app");
+            return;
+        };
+        let tmp = std::env::temp_dir().join(format!("claudecn-e2e2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let staged = tmp.join("Claude.app");
+        let cp = Command::new("cp").arg("-R").arg(&app).arg(&staged).output().unwrap();
+        assert!(cp.status.success(), "cp 失败: {}", String::from_utf8_lossy(&cp.stderr));
+        let _ = Command::new("xattr").args(["-dr", "com.apple.quarantine"]).arg(&staged).output();
+
+        let i18n = find_i18n_dir(&staged).expect("找不到 i18n 目录");
+        let en = load_json_map(&en_source(&i18n)).unwrap();
+        let base = load_json_map(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/zh-CN.base.json"),
+        )
+        .unwrap();
+        let mut dict = online::build_dictionary(&en, &base);
+        let n_frontend = dict.len();
+        let res_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let n_desktop = online::extend_dictionary(&mut dict, &staged.join("Contents/Resources/en-US.json"), &res_dir.join("desktop-zh-CN.base.json")).unwrap();
+        let n_statsig = online::extend_dictionary(&mut dict, &i18n.join("statsig/en-US.json"), &res_dir.join("statsig-zh-CN.base.json")).unwrap();
+        println!("在线词典：前端 {n_frontend} + 桌面菜单 {n_desktop} + statsig {n_statsig} = {}", dict.len());
+        assert!(dict.len() > 5000, "词典太小: {}", dict.len());
+        let cfg = online::OnlineConfig { report_delay_ms: Some(10_000), ..Default::default() };
+        let script = online::build_page_script(&dict, &cfg);
+        let script_lit = serde_json::to_string(&script).unwrap();
+
+        let marker = tmp.join("stats.json");
+        let marker_lit = serde_json::to_string(marker.to_string_lossy().as_ref()).unwrap();
+        let asar_path = staged.join("Contents/Resources/app.asar");
+        let mut ar = Asar::open(&asar_path).expect("解析 app.asar");
+        let report = inject::install(&mut ar, &|h| {
+            format!(
+                "{recv}.executeJavaScript({script_lit},true).then(function(r){{require(\"fs\").writeFileSync({marker_lit},JSON.stringify(r))}}).catch(function(e){{require(\"fs\").writeFileSync({marker_lit},\"ERR:\"+e)}})",
+                recv = h.receiver
+            )
+        })
+        .expect("定位并注入");
+        println!("注入点: {} 接收者={} 词典={} 条 脚本={} KB", report.point.file, report.point.hook.receiver, dict.len(), script.len() / 1024);
+        let new_asar = tmp.join("app.asar.new");
+        let save = ar.save_to(&new_asar).expect("重建 asar");
+        std::fs::rename(&new_asar, &asar_path).unwrap();
+        write_asar_integrity(&staged, &save.header_sha256).unwrap();
+        resign(&staged, Some(&format!("identifier \"{BUNDLE_ID}\""))).expect("重签名");
+
+        let profile = tmp.join("profile");
+        let mut child = Command::new(staged.join("Contents/MacOS/Claude"))
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("启动 Claude");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(75);
+        let mut got = None;
+        while std::time::Instant::now() < deadline {
+            if let Ok(c) = std::fs::read_to_string(&marker) {
+                if !c.is_empty() {
+                    got = Some(c);
+                    break;
+                }
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("Claude 提前退出（{status}）");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = Command::new("pkill").arg("-f").arg(format!("user-data-dir={}", profile.display())).output();
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let got = got.expect("75 秒内页面脚本没有回报统计");
+        assert!(!got.starts_with("ERR:"), "页面脚本执行出错: {got}");
+        let stats: serde_json::Value = serde_json::from_str(&got).expect("统计应是 JSON");
+        println!("页面统计: {}", serde_json::to_string_pretty(&stats).unwrap());
+        assert!(stats.get("skipped").is_none(), "脚本因 host 不匹配跳过了: {stats}");
+        assert!(stats["dict"].as_u64().unwrap_or(0) > 5000, "词典没送进页面");
+        assert_eq!(stats["errors"].as_array().map(|a| a.len()).unwrap_or(99), 0, "脚本内部报错: {}", stats["errors"]);
+        println!(
+            "✅ 登录页实测：替换文本 {} 处、属性 {} 处、遍历节点 {}、批次 {}",
+            stats["replaced"], stats["attrs"], stats["nodes"], stats["passes"]
+        );
     }
 }

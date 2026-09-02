@@ -21,6 +21,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"     # asar 完整性字段（sha256 + 4 MB 分块）
 regex = "1"       # 语言白名单自适应探测
 walkdir = "2"     # 目录遍历（找 index-*.js / en-US.json）
 dirs = "5"        # 跨平台定位 home/config 目录

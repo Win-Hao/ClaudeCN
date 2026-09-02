@@ -10,7 +10,15 @@ use serde_json::{Map, Value};
 use tauri::{AppHandle, Emitter, Manager};
 use walkdir::WalkDir;
 
+// 在线页面汉化（asar / inject / online）目前只接入 macOS：Windows 的 asar 哈希嵌在 Claude.exe 里，
+// 改 asar 会破坏 Authenticode，尚未支持。不编进 Windows，免得 dead_code 让 CI 的 -D warnings 变红。
+#[cfg(target_os = "macos")]
+pub mod asar;
 pub mod assets;
+#[cfg(target_os = "macos")]
+pub mod inject;
+#[cfg(target_os = "macos")]
+pub mod online;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "windows")]
